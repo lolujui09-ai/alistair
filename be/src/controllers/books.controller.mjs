@@ -154,7 +154,7 @@ export async function getBookFilters(req, res) {
 
     const types = typesResult.map((r) => r.type);
 
-    // Genre populer umum dalam koleksi
+    // Daftar Genre Populer
     const popularGenres = [
       'Romance',
       'Drama',

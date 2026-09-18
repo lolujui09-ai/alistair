@@ -1,7 +1,7 @@
 # Blueprint & Planning Implementasi RAG Alistair
 
 Dokumen perencanaan teknis integrasi sistem **Retrieval-Augmented Generation (RAG)** pada backend Alistair dengan teknologi:
-* **Embedding Model**: `all-MiniLM-L6-v2` (Berjalan 100% lokal di Node.js, 384 dimensi, Cosine distance)
+* **Embedding Model**: `paraphrase-multilingual-MiniLM-L12-v2` (Multilingual 50+ bahasa termasuk Indonesia, berjalan 100% lokal di Node.js, 384 dimensi, Cosine distance)
 * **Vector Database**: `Qdrant` (Collection: `books`, port: 6333)
 * **LLM**: `Cloudflare Workers AI` (Model: `@cf/meta/llama-3.1-8b-instruct`)
 * **Sumber Data**: `books_embed.txt` (~44.9 MB, berisi 89.014 judul buku/komik yang sudah terformat siap embed)
@@ -17,7 +17,7 @@ Pengguna (Chat UI di Frontend)
        ▼
 [POST /api/chat] (Express.js Backend)
        │
-       ├─► 1. Local Embedding Service (all-MiniLM-L6-v2)
+       ├─► 1. Local Multilingual Embedding Service (paraphrase-multilingual-MiniLM-L12-v2)
        │      Konversi teks query user -> 384-dim Float32 vector (~20ms)
        │
        ├─► 2. Qdrant Vector Search
@@ -68,7 +68,7 @@ Urutan blok buku di `books_embed.txt` berkorespondensi 1-ke-1 dengan `PRIMARY KE
 | Komponen | Pilihan Teknologi | Keterangan & Konfigurasi |
 | :--- | :--- | :--- |
 | **Data Source** | `books_embed.txt` | 89.014 blok data terstruktur, pembagian batch per 50-100 buku. |
-| **Embedding Engine** | `@xenova/transformers` (Local ONNX) | Model: `Xenova/all-MiniLM-L6-v2`<br>• Vektor: **384 dimensi**.<br>• 100% lokal tanpa API key eksternal & tanpa perlu Python.<br>• Cepat (~15-30ms per query di CPU). |
+| **Embedding Engine** | `@xenova/transformers` (Local ONNX) | Model: `Xenova/paraphrase-multilingual-MiniLM-L12-v2`<br>• Vektor: **384 dimensi**.<br>• Dukungan: **50+ Bahasa** (Indonesia, Inggris, dll.).<br>• 100% lokal tanpa API key eksternal & tanpa perlu Python.<br>• Cepat (~20-40ms per query di CPU). |
 | **Vector Database** | `Qdrant` | Client: `@qdrant/js-client-rest`<br>• Collection name: `books`<br>• Vector size: `384`<br>• Distance: `Cosine`<br>• Payload: `book_id`, `title`, `author`, `type`, `genre`, `cover_url`, `description`. |
 | **LLM Provider** | `Cloudflare Workers AI` | Model: `@cf/meta/llama-3.1-8b-instruct`<br>• REST API Cloudflare AI.<br>• Biaya hemat / kuota gratis harian memadai, latensi sangat cepat.<br>• Respons bahasa Indonesia yang natural dan ramah. |
 
@@ -102,7 +102,7 @@ Urutan blok buku di `books_embed.txt` berkorespondensi 1-ke-1 dengan `PRIMARY KE
 ---
 
 ### Tahap 2: Local Embedding Service (`be/src/services/embedding.service.mjs`)
-1. Inisialisasi pipeline model `Xenova/all-MiniLM-L6-v2` menggunakan arsitektur Singleton (model hanya di-load 1x ke memori saat startup).
+1. Inisialisasi pipeline model `Xenova/paraphrase-multilingual-MiniLM-L12-v2` menggunakan arsitektur Singleton (model hanya di-load 1x ke memori saat startup).
 2. Menyediakan 2 fungsi:
    * `getEmbedding(text)`: Menghasilkan 1 array vektor 384 dimensi untuk query pengguna.
    * `getBatchEmbeddings(texts[])`: Menghasilkan array vektor untuk batch ingestion buku.

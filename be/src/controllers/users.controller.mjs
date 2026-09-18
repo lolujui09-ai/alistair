@@ -1,9 +1,7 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../config/db.mjs';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'alistair_jwt_secret_key_2026';
-const JWT_EXPIRES_IN = '7d';
+import { getJwtSecret, JWT_EXPIRES_IN } from '../config/jwt.mjs';
 
 export async function register(req, res) {
   try {
@@ -63,7 +61,7 @@ export async function register(req, res) {
 
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRES_IN }
     );
 
@@ -127,7 +125,7 @@ export async function login(req, res) {
 
     const token = jwt.sign(
       { id: user.id, email: user.email, name: user.name },
-      JWT_SECRET,
+      getJwtSecret(),
       { expiresIn: JWT_EXPIRES_IN }
     );
 

@@ -1,27 +1,35 @@
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'alistair_jwt_secret_key_2026';
+import { getJwtSecret } from '../config/jwt.mjs';
 
 export function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!authHeader) {
     return res.status(401).json({
       success: false,
       message: 'No token provided',
     });
   }
 
-  const token = authHeader.substring(7);
+  const parts = authHeader.trim().split(/\s+/);
+  if (parts.length !== 2 || parts[0].toLowerCase() !== 'bearer') {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid authorization format. Format should be: Bearer <token>',
+    });
+  }
+
+  const token = parts[1].trim();
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret());
     req.user = decoded;
     next();
   } catch (error) {
+    console.warn(`[authMiddleware] Token verification failed: ${error.message}`);
     res.status(401).json({
       success: false,
-      message: 'Invalid or expired token',
+      message: error.name === 'TokenExpiredError' ? 'Token expired' : 'Invalid or expired token',
     });
   }
 }
