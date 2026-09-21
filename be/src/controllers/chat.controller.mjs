@@ -1,5 +1,5 @@
 import pool from '../config/db.mjs';
-import { askAlistair } from '../services/rag.service.mjs';
+import { askAlistair, askAlistairStream } from '../services/rag.service.mjs';
 
 /**
  * Mengambil seluruh sesi chat milik user yang sedang login
@@ -328,6 +328,7 @@ export async function handleChat(req, res) {
   try {
     const userId = req.user.id;
     const { message, sessionId = null, attachedBook = null } = req.body;
+    const isStream = req.body.stream === true || req.query.stream === 'true';
 
     if (!message || typeof message !== 'string' || message.trim() === '') {
       return res.status(400).json({
@@ -369,18 +370,112 @@ export async function handleChat(req, res) {
       [activeSessionId, message.trim()]
     );
 
-    // Ambil riwayat percakapan singkat untuk konteks percakapan
+    // Ambil riwayat percakapan terbaru untuk konteks percakapan (termasuk metadata rekomendasi)
     const [historyRows] = await pool.query(
-      'SELECT role, content FROM chat_messages WHERE session_id = ? ORDER BY created_at ASC LIMIT 6',
+      `SELECT id, role, content, metadata
+       FROM chat_messages
+       WHERE session_id = ?
+       ORDER BY id DESC
+       LIMIT 8`,
       [activeSessionId]
     );
 
-    const history = historyRows.map((h) => ({
+    const history = historyRows.reverse().map((h) => ({
       role: h.role,
       content: h.content,
+      metadata: h.metadata,
     }));
 
-    // 3. Panggil AI RAG Alistair (dengan fallback jika Qdrant/Cloudflare belum aktif)
+    const userMessageData = {
+      id: String(userMsgResult.insertId),
+      sender: 'user',
+      text: message.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    // JIKA STREAMING:
+    if (isStream) {
+      // Set SSE headers
+      res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
+      res.flushHeaders?.();
+
+      let streamGen;
+      let finalBooks = [];
+
+      try {
+        const streamResult = await askAlistairStream({
+          message: message.trim(),
+          history,
+          attachedBook,
+        });
+        streamGen = streamResult.streamGenerator;
+        finalBooks = streamResult.books || [];
+      } catch (ragError) {
+        console.warn('[Chat Stream] RAG fallback due to error:', ragError.message);
+        finalBooks = attachedBook ? [attachedBook] : [];
+        async function* fallbackGen() {
+          const fallbackText = `Halo! Aku Alistair. Pertanyaanmu mengenai "${message.trim()}" telah kuterima. Saat ini aku sedang menyiapkan katalog rekomendasi terbaik untukmu.`;
+          for (const word of fallbackText.split(' ')) {
+            yield word + ' ';
+            await new Promise((r) => setTimeout(r, 40));
+          }
+        }
+        streamGen = fallbackGen();
+      }
+
+      // Kirim event 'init' pertama berisi info sesi, pesan user, dan kartu buku
+      res.write(`data: ${JSON.stringify({
+        type: 'init',
+        sessionId: String(activeSessionId),
+        sessionTitle,
+        userMessage: userMessageData,
+        books: finalBooks,
+      })}\n\n`);
+
+      let fullReply = '';
+      try {
+        for await (const chunk of streamGen) {
+          fullReply += chunk;
+          res.write(`data: ${JSON.stringify({
+            type: 'token',
+            text: chunk,
+          })}\n\n`);
+        }
+      } catch (streamError) {
+        console.error('[Chat Stream] Error during streaming tokens:', streamError.message);
+        res.write(`data: ${JSON.stringify({
+          type: 'error',
+          message: streamError.message,
+        })}\n\n`);
+      }
+
+      // Simpan balasan utuh AI ke chat_messages
+      const metadata = JSON.stringify({ books: finalBooks });
+      const [assistantMsgResult] = await pool.query(
+        'INSERT INTO chat_messages (session_id, role, content, metadata) VALUES (?, "assistant", ?, ?)',
+        [activeSessionId, fullReply, metadata]
+      );
+
+      // Perbarui updated_at pada chat_sessions
+      await pool.query(
+        'UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [activeSessionId]
+      );
+
+      // Kirim event 'done'
+      res.write(`data: ${JSON.stringify({
+        type: 'done',
+        assistantMessageId: String(assistantMsgResult.insertId),
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      })}\n\n`);
+
+      return res.end();
+    }
+
+    // JIKA NON-STREAMING (Graceful fallback):
     let aiResult;
     try {
       aiResult = await askAlistair({
@@ -396,14 +491,12 @@ export async function handleChat(req, res) {
       };
     }
 
-    // 4. Simpan balasan AI ke chat_messages (beserta metadata buku rekomendasi)
     const metadata = JSON.stringify({ books: aiResult.books || [] });
     const [assistantMsgResult] = await pool.query(
       'INSERT INTO chat_messages (session_id, role, content, metadata) VALUES (?, "assistant", ?, ?)',
       [activeSessionId, aiResult.reply, metadata]
     );
 
-    // Perbarui updated_at pada chat_sessions
     await pool.query(
       'UPDATE chat_sessions SET updated_at = CURRENT_TIMESTAMP WHERE id = ?',
       [activeSessionId]
@@ -414,12 +507,7 @@ export async function handleChat(req, res) {
       data: {
         sessionId: String(activeSessionId),
         sessionTitle,
-        userMessage: {
-          id: String(userMsgResult.insertId),
-          sender: 'user',
-          text: message.trim(),
-          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        },
+        userMessage: userMessageData,
         assistantMessage: {
           id: String(assistantMsgResult.insertId),
           sender: 'alistair',
@@ -431,10 +519,15 @@ export async function handleChat(req, res) {
     });
   } catch (error) {
     console.error('Chat controller error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Gagal memproses pesan chat',
-      error: error.message,
-    });
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: 'Gagal memproses pesan chat',
+        error: error.message,
+      });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      res.end();
+    }
   }
 }

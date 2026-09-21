@@ -39,19 +39,34 @@ async function main() {
   console.log('='.repeat(65));
 
   // 1. Tentukan path file .txt sumber data
-  let targetTxtPath = process.argv[2];
+  let targetTxtPath = null;
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    if (arg.startsWith('--')) {
+      if (arg === '--offset') i++; // lewati argumen nilai offset
+      continue;
+    }
+    if (!targetTxtPath) {
+      targetTxtPath = arg;
+    }
+  }
+
   if (!targetTxtPath) {
     const scriptDir = path.dirname(new URL(import.meta.url).pathname).replace(/^\/([A-Za-z]:)/, '$1');
     const candidates = [
       // Di dalam folder scripts itu sendiri
+      path.resolve(scriptDir, 'novels_embed.txt'),
       path.resolve(scriptDir, 'books_embed.txt'),
       path.resolve(scriptDir, 'books.txt'),
       // Di folder be/data atau be/
-      path.resolve(process.cwd(), 'data/books.txt'),
+      path.resolve(process.cwd(), 'data/novels_embed.txt'),
       path.resolve(process.cwd(), 'data/books_embed.txt'),
+      path.resolve(process.cwd(), 'data/books.txt'),
+      path.resolve(process.cwd(), 'novels_embed.txt'),
       path.resolve(process.cwd(), 'books_embed.txt'),
       path.resolve(process.cwd(), 'books.txt'),
       // Di root project palistair/
+      path.resolve(process.cwd(), '../novels_embed.txt'),
       path.resolve(process.cwd(), '../books_embed.txt'),
       path.resolve(process.cwd(), '../books.txt'),
     ];
@@ -76,7 +91,7 @@ async function main() {
   if (!targetTxtPath || !fs.existsSync(targetTxtPath)) {
     console.error('\n[ERROR] File .txt sumber data tidak ditemukan!');
     console.log('Gunakan perintah: node src/scripts/ingest_books.mjs <path_ke_file_txt>');
-    console.log('Contoh: node src/scripts/ingest_books.mjs ../books_embed.txt');
+    console.log('Contoh: node src/scripts/ingest_books.mjs src/scripts/novels_embed.txt');
     process.exit(1);
   }
 
@@ -94,7 +109,7 @@ async function main() {
   }
   console.log(`[Qdrant] Terhubung. Koleksi yang ada: ${connStatus.collections.join(', ') || '(belum ada)'}`);
 
-  // 3. Cek flag --reset
+  // 3. Cek flag --reset dan --offset
   const shouldReset = process.argv.includes('--reset') || process.argv.includes('--recreate');
   if (shouldReset) {
     console.log('\n[RESET] Flag --reset terdeteksi. Menghapus koleksi Qdrant dan checkpoint lama...');
@@ -107,17 +122,29 @@ async function main() {
   // Inisialisasi koleksi 'books'
   await initBooksCollection('books', shouldReset);
 
-  // 4. Periksa Checkpoint
+  // 4. Periksa Checkpoint & Hitung ID Offset
   const checkpoint = shouldReset ? null : loadCheckpoint();
-  let startFromId = 1;
-  let totalProcessed = 0;
+  let idOffset = 0;
+
+  const offsetArgIdx = process.argv.indexOf('--offset');
+  if (offsetArgIdx !== -1 && process.argv[offsetArgIdx + 1]) {
+    idOffset = parseInt(process.argv[offsetArgIdx + 1], 10) || 0;
+    console.log(`[INFO] ID Offset manual disetel: +${idOffset}`);
+  } else if (!shouldReset && checkpoint && checkpoint.lastBookId) {
+    // Jika ada checkpoint dari proses batch buku sebelumnya, jadikan sebagai offset dasar
+    idOffset = checkpoint.lastBookId;
+    console.log(`[INFO] Menyambungkan ID dari file sebelumnya: ID Offset +${idOffset}`);
+  }
+
+  let startFromId = idOffset + 1;
+  let totalProcessed = idOffset;
 
   if (checkpoint && checkpoint.lastBookId) {
     console.log(`\n[INFO] Ditemukan checkpoint sebelumnya:`);
-    console.log(`Terakhir diproses : Buku ID #${checkpoint.lastBookId} (Total: ${checkpoint.totalCount})`);
+    console.log(`Terakhir diproses : Buku ID #${checkpoint.lastBookId} (Total: ${checkpoint.totalCount || checkpoint.lastBookId})`);
     console.log(`Melanjutkan proses ingestion dari ID #${checkpoint.lastBookId + 1}...\n`);
     startFromId = checkpoint.lastBookId + 1;
-    totalProcessed = checkpoint.totalCount || 0;
+    totalProcessed = checkpoint.totalCount || checkpoint.lastBookId;
   }
 
   // 5. Ingestion Loop
@@ -175,7 +202,7 @@ async function main() {
         await processBatch(toProcess);
       }
     },
-    { startFromId }
+    { startFromId, idOffset }
   );
 
   // Proses sisa buffer

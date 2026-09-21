@@ -1,7 +1,7 @@
 import pool from '../config/db.mjs';
 import { getEmbedding } from './embedding.service.mjs';
 import { searchSimilarBooks } from './qdrant.service.mjs';
-import { generateChatResponse } from './llm.service.mjs';
+import { generateChatResponse, generateChatStream } from './llm.service.mjs';
 
 const ALISTAIR_SYSTEM_PROMPT = `Kamu adalah Alistair, kurator bacaan dan penjaga perpustakaan virtual yang berwawasan luas, ramah, hangat, dan bersahabat. Koleksi perpustakaanmu mencakup beragam karya: Manga, Manhwa, Manhua, Webtoon, Comic (Komik), Graphic Novel, dan Novel.
 
@@ -18,8 +18,10 @@ PEDOMAN UTAMA:
    - Jika pengunjung menanyakan tipe tertentu (contoh: "apa ada manhwa tentang..."), fokuslah menjawab dengan kata "manhwa" dan prioritaskan merekomendasikan karya bertipe Manhwa/Webtoon.
 
 2. GAYA BICARA NATURAL & INDEPENDEN:
-   - JANGAN PERNAH gunakan frasa kaku seperti "Berdasarkan katalog yang Anda berikan", "Saya melihat di katalog", atau "Dari data yang ada".
-   - Berbicaralah layaknya kurator profesional yang memang mengenal dan hafal koleksi perpustakaannya sendiri (misal: "Tentu! Untuk manga Dandadan karya Yukinobu Tatsu, ceritanya sangat unik...", "Ada beberapa manhwa menarik di perpustakaan yang mengusung tema tersebut...").
+   - JANGAN PERNAH gunakan frasa kaku seperti "Berdasarkan katalog yang Anda berikan", "Saya melihat di katalog yang Anda berikan", atau "Dari data yang Anda berikan". Pengunjung adalah tamu perpustakaan yang sedang bertanya kepadamu, BUKAN pihak yang memberikan katalog data!
+   - Jika suatu judul yang ditanyakan pengunjung belum ada di koleksi Alistair, gunakan ungkapan santun dan ramah:
+     "Di daftar koleksi Explore-ku saat ini belum tersimpan judul itu..." atau "Di perpustakaan Alistair saat ini belum tersimpan judul tersebut...".
+   - Setelah itu, jelaskan gambaran karya tersebut secara umum menggunakan wawasan literaturmu yang luas tanpa bertele-tele.
 
 3. KEDALAMAN DAN FOKUS JUDUL:
    - Jika pengunjung menanyakan judul spesifik yang ada di katalog, fokuslah membahas karya tersebut secara mendalam (sinopsis, keunikan, daya tarik cerita, karakter).
@@ -28,7 +30,27 @@ PEDOMAN UTAMA:
 
 4. GAYA BAHASA:
    - Gunakan Bahasa Indonesia yang santun, luwes, ekspresif, dan bersahabat.
-   - Jaga jawaban agar informatif, terstruktur rapi, dan nyaman dibaca.`;
+   - Jaga jawaban agar informatif, terstruktur rapi, dan nyaman dibaca.
+
+5. KONSISTENSI RIWAYAT & PERTANYAAN LANJUTAN:
+   - Jika pengunjung menanyakan rujukan dari karya yang baru saja dibahas (misal: "di mana bacanya", "yang pertama tadi ceritanya gimana", "siapa penulisnya", "rekomendasi kedua", atau komplain inkonsistensi), JANGAN PERNAH menyangkal bahwa karya tersebut ada di perpustakaan. Karya tersebut memang ada dan baru saja dibahas di sesi ini.
+   - Jawablah pertanyaan pengunjung secara langsung dan spesifik mengenai karya yang sedang dibahas tersebut.
+
+6. PANDUAN PERTANYAAN "DI MANA BISA BACA":
+   - Jika pengunjung menanyakan di mana bisa membaca karya tertentu, arahkan secara ramah ke platform resmi/legal yang lazim sesuai tipe medianya:
+     * Manhwa/Webtoon: sarankan platform resmi seperti LINE Webtoon, Tappytoon, KakaoPage, atau platform resmi penerbit.
+     * Manga/Komik: sarankan platform resmi seperti MangaPlus by Shueisha, Shonen Jump, atau toko buku komik berlisensi resmi.
+     * Novel: sarankan toko buku resmi (Gramedia, Kinokuniya), Google Play Books, atau situs web resmi penerbit/penulis.
+   - Jelaskan dengan santun bahwa Alistair berfungsi sebagai kurator informasi/sinopsis dan katalog rekomendasi bacaan, sehingga pengunjung dapat membaca sinopsis, detail, dan genre lengkapnya langsung di halaman Explore Alistair.
+
+7. PENGETAHUAN LITERATUR UMUM & URUTAN BACAAN:
+   - Jika pengunjung menanyakan urutan novel/bacaan (contoh: urutan novel Harry Potter, Percy Jackson, Narnia), sejarah pengarang, fakta cerita, alur, istilah sastra, atau penjelasan karakter:
+     * JAWABLAH SECARA LANGSUNG, TUNTAS, DAN LENGKAP menggunakan pengetahuan literaturmu yang luas!
+     * JANGAN PERNAH menolak menjawab atau meminta maaf dengan alasan "tidak ada dalam katalog". Katalog perpustakaan adalah inventaris koleksi, BUKAN batasan wawasanmu. Pengunjung sedang meminta penjelasan pengetahuan, bukan sedang mencari stok inventaris!
+
+8. KARTU REKOMENDASI KATALOG & FITUR BOOKMARK:
+   - Kartu katalog rekomendasi hanya diberikan saat karya yang relevan benar-benar cocok di koleksi Explore Alistair.
+   - Saat memberikan rekomendasi karya yang tersedia di kartu katalog, kamu dapat dengan ramah menyarankan pengunjung: "Kamu bisa menyimpan atau mem-bookmark judul-judul di atas agar tersimpan di daftar bacaan favoritmu!"`;
 
 /**
  * Mendeteksi preferensi tipe karya dari pesan user (manga, manhwa, webtoon, dll.)
@@ -60,7 +82,7 @@ function extractTitleCandidates(text) {
   }
 
   // 2. Pembersihan kata-kata pengantar/basa-basi
-  const stopWords = /\b(apa|apakah|kamu|tau|tahu|tentang|ada|tolong|rekomendasi|rekomendasikan|carikan|cari|bisa|kah|dong|ya|ceritakan|info|sinopsis|review|analisis|mengenai|karya|oleh|buatan|buku|komik|manga|manhwa|manhua|webtoon|novel|bagaimanakah|bagaimana|siapa|pengarang|penulis)\b/gi;
+  const stopWords = /\b(apa|apakah|afa|adakah|ada|ada nggak|ada gak|apakah punya|punya|kamu|tau|tahu|tentang|tolong|rekomendasi|rekomendasikan|carikan|cari|bisa|kah|dong|ya|ceritakan|info|sinopsis|review|analisis|mengenai|karya|oleh|buatan|buku|komik|manga|manhwa|manhua|webtoon|novel|bagaimanakah|bagaimana|siapa|pengarang|penulis)\b/gi;
   const cleaned = text
     .replace(stopWords, ' ')
     .replace(/[?!.,;:()[\]{}]/g, ' ')
@@ -137,6 +159,84 @@ async function searchMySQLBooks(candidates, preferredTypes = null) {
 }
 
 /**
+ * Mengekstrak karya/buku yang baru saja dibahas dari riwayat obrolan
+ */
+function extractRecentBooksFromHistory(history) {
+  if (!Array.isArray(history) || history.length === 0) return [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    if (msg.role === 'assistant' && msg.metadata) {
+      try {
+        const meta = typeof msg.metadata === 'string' ? JSON.parse(msg.metadata) : msg.metadata;
+        if (Array.isArray(meta.books) && meta.books.length > 0) {
+          return meta.books;
+        }
+      } catch {
+        // Abaikan parse error
+      }
+    }
+    if (Array.isArray(msg.books) && msg.books.length > 0) {
+      return msg.books;
+    }
+  }
+  return [];
+}
+
+/**
+ * Mengklasifikasikan intent pesan pengguna:
+ * - 'CHIT_CHAT': sapaan, ucapan terima kasih, obrolan santai
+ * - 'FOLLOW_UP': pertanyaan lanjutan seputar rekomendasi yang baru diberikan
+ * - 'BOOK_DISCOVERY': pencarian / permintaan rekomendasi buku baru
+ */
+function classifyUserIntent(queryText, previousActiveBooks = []) {
+  const rawLower = queryText.toLowerCase().trim();
+  // Hilangkan sapaan nama "alistair" atau tanda baca untuk deteksi intent
+  const lower = rawLower
+    .replace(/\b(alistair|alis|min|admin|bot)\b/gi, ' ')
+    .replace(/[!?.,;]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 1. Chit-chat / Greetings / Pleasantries / Meta questions
+  const chitChatRegex = /^(halo|hai|hi|hello|hey|hei|p|assalamualaikum|selamat (pagi|siang|sore|malam)|kamu siapa|siapa kamu|siapa namamu|terima kasih|makasih|makasi|thanks|thank you|ok|oke|sip|siap|baiklah|keren|mantap|bisa apa|kamu bisa apa|bisa bantu apa|bantu apa saja)$/i;
+  if (!lower || chitChatRegex.test(lower) || chitChatRegex.test(rawLower)) {
+    return 'CHIT_CHAT';
+  }
+
+  // 2. Pertanyaan di mana membaca
+  const whereToReadRegex = /(dimana|di mana|dimanakah|di manakah|bisa baca|baca di mana|link baca|tempat baca|baca manga|baca novel|baca komik|baca manhwa).*(baca|bisa|akses|nemu|beli|cari)/i;
+  const isWhereToRead = whereToReadRegex.test(rawLower) || /^(dimana|di mana) (aku|kita|saya)? ?(bisa|bias)? ?(baca|nonton|akses|dapatin|dapetin)/i.test(rawLower);
+
+  // 3. Referensi ke rekomendasi sebelumnya ("rekomendasi pertama", "yang tadi", "nomor 1")
+  const ordinalRefRegex = /(rekomendasi|judul|karya|pilihan)?\s*(pertama|ke-?1|ke-?2|ke-?3|kedua|ketiga|tadi|nomor 1|nomor 2|nomor 3|no 1|no 2|no 3)/i;
+  const isOrdinalRef = ordinalRefRegex.test(rawLower);
+
+  // 4. Klarifikasi atau komplain ("kenapa kamu bilang", "apa maksudmu")
+  const isClarification = /(apa maksud|kenapa bilang|kenapa kamu bilang|tadi kamu bilang|maksudmu apa|kenapa tidak ada|kenapa nggak ada)/i.test(rawLower);
+
+  // 5. Pertanyaan detail tentang karya yang sedang dibahas tanpa menyebut judul baru
+  const isDetailQuestion = /(siapa|siapakah) (penulis|pengarang|author|pembuat)nya/i.test(rawLower) ||
+                           /(apakah|apa) (sudah|udah) (tamat|selesai)/i.test(rawLower) ||
+                           /(berapa|ada berapa) (chapter|bab|volume)/i.test(rawLower);
+
+  if ((isWhereToRead || isOrdinalRef || isClarification || isDetailQuestion) && previousActiveBooks.length > 0) {
+    return 'FOLLOW_UP';
+  }
+
+  if (isWhereToRead || isClarification) {
+    return 'FOLLOW_UP';
+  }
+
+  // 6. Pertanyaan penjelasan, urutan novel/bacaan, trivia, lore, ringkasan, atau analisis umum
+  const isExplanation = /(urutan|urutan baca|urutan rilis|urutan kronologis|alur cerita|sinopsis|ringkasan|jelaskan|ceritakan tentang|siapa itu|siapakah|maksud dari|arti dari|kenapa|mengapa|bagaimana cara|penjelasan|bedanya|perbedaan|latar belakang|ending|tamatnya|karakter)/i.test(rawLower);
+  if (isExplanation) {
+    return 'KNOWLEDGE_EXPLANATION';
+  }
+
+  return 'BOOK_DISCOVERY';
+}
+
+/**
  * Menyusun konteks karya yang relevan untuk LLM dengan tipe dinamis
  */
 function buildWorksContext(works) {
@@ -160,82 +260,159 @@ function buildWorksContext(works) {
 }
 
 /**
- * Memproses pertanyaan pengguna melalui Hybrid RAG (MySQL Lexical + Qdrant Vector)
- * @param {Object} params
- * @param {string} params.message - Pesan / pertanyaan dari user
- * @param {Array<{ role: string, content: string }>} [params.history=[]] - Riwayat percakapan sebelumnya
- * @param {Object} [params.attachedBook=null] - Karya spesifik yang dilampirkan user (misal dari tombol BookDetail)
- * @returns {Promise<{ reply: string, books: Array<Object> }>}
+ * Menyiapkan konteks RAG dan struktur pesan untuk LLM
  */
-export async function askAlistair({ message, history = [], attachedBook = null }) {
+export async function prepareRAGContext({ message, history = [], attachedBook = null }) {
   if (!message || !message.trim()) {
     throw new Error('Pesan pertanyaan tidak boleh kosong');
   }
 
   const queryText = message.trim();
+  const previousActiveBooks = extractRecentBooksFromHistory(history);
+  const intent = classifyUserIntent(queryText, previousActiveBooks);
 
-  // 1. Ekstraksi tipe karya yang diinginkan dan kandidat judul dari teks
-  const preferredTypes = detectTargetType(queryText);
-  const titleCandidates = extractTitleCandidates(queryText);
+  let finalWorks = [];
+  let returnCatalogCards = false;
+  let contextString = '';
 
-  // 2. Pencarian leksikal (keyword) di MySQL
-  let mysqlBooks = [];
-  try {
-    mysqlBooks = await searchMySQLBooks(titleCandidates, preferredTypes);
-  } catch (err) {
-    console.warn('[RAG] Pencarian keyword MySQL gagal:', err.message);
-  }
-
-  // 3. Pencarian semantik (vektor) di Qdrant
-  let vectorBooks = [];
-  try {
-    const queryVector = await getEmbedding(queryText);
-    vectorBooks = await searchSimilarBooks(queryVector, 5, 'books', preferredTypes);
-  } catch (err) {
-    console.warn('[RAG] Pencarian vektor Qdrant tidak tersedia/gagal:', err.message);
-  }
-
-  // 4. Hybrid Merge & Re-ranking
-  const finalMap = new Map();
-
-  // A. Karya yang dilampirkan user secara eksplisit menjadi prioritas nomor 1
+  // KASUS 1: Buku dilampirkan secara eksplisit dari UI (misal tombol di BookDetail)
   if (attachedBook) {
-    finalMap.set(attachedBook.id, attachedBook);
+    finalWorks = [attachedBook];
+    contextString = `[KARYA YANG SEDANG DITANYAKAN SECARA KHUSUS]:\n${buildWorksContext(finalWorks)}`;
+    returnCatalogCards = false; // User sudah berada di halaman detail buku tersebut
   }
-
-  // B. Judul yang cocok persis (exact match) dari MySQL
-  const exactMatches = mysqlBooks.filter((b) => b.matchType === 'exact');
-  for (const b of exactMatches) {
-    if (!finalMap.has(b.id)) finalMap.set(b.id, b);
+  // KASUS 2: Pertanyaan lanjutan / Follow-up dari rekomendasi yang sudah diberikan
+  else if (intent === 'FOLLOW_UP' && previousActiveBooks.length > 0) {
+    finalWorks = previousActiveBooks.slice(0, 3);
+    contextString = `[KARYA YANG BARU SAJA ANDA REKOMENDASIKAN KEPADA PENGUNJUNG]:\n${buildWorksContext(finalWorks)}\n\n(Catatan: Pengunjung sedang menanyakan hal lanjutan seputar karya di atas. Jawablah langsung secara konsisten dan jangan menyangkal keberadaannya).`;
+    returnCatalogCards = false; // PENTING: Jangan munculkan kartu duplikat di chat follow-up!
   }
-  const hasExactMatch = exactMatches.length > 0;
-
-  // C. Sisa hasil pencarian keyword MySQL
-  for (const b of mysqlBooks) {
-    if (!finalMap.has(b.id)) finalMap.set(b.id, b);
-    if (finalMap.size >= 5) break;
+  // KASUS 3: Sapaan umum / Basa-basi santai (Chit-Chat)
+  else if (intent === 'CHIT_CHAT') {
+    finalWorks = [];
+    contextString = `[PENGUNJUNG MENYAPA / MENGOBROL SANTAI]: Jawablah dengan ramah, hangat, dan siap membantu merekomendasikan karya jika pengunjung menginginkannya.`;
+    returnCatalogCards = false; // PENTING: Jangan munculkan kartu buku pada sapaan umum!
   }
-
-  // D. Hasil pencarian vektor semantik Qdrant
-  // Jika sudah ada exact match yang kuat, hanya sertakan hasil vektor jika skornya cukup tinggi
-  for (const vb of vectorBooks) {
-    if (!finalMap.has(vb.id)) {
-      if (hasExactMatch && vb.score < 0.52) {
-        continue; // abaikan judul luar jika judul spesifik sudah ditemukan
-      }
-      finalMap.set(vb.id, vb);
+  // KASUS 4: Pertanyaan Penjelasan / Urutan Bacaan / Lore / Fakta Sastra (KNOWLEDGE_EXPLANATION)
+  else if (intent === 'KNOWLEDGE_EXPLANATION') {
+    // Periksa apakah ada karya terkait di MySQL untuk memperkaya referensi
+    const titleCandidates = extractTitleCandidates(queryText);
+    const preferredTypes = detectTargetType(queryText);
+    let mysqlBooks = [];
+    try {
+      mysqlBooks = await searchMySQLBooks(titleCandidates, preferredTypes);
+    } catch {
+      // Abaikan jika error
     }
-    if (finalMap.size >= 5) break;
+
+    finalWorks = mysqlBooks.slice(0, 3);
+    if (finalWorks.length > 0) {
+      contextString = `[KARYA TERKAIT DI INVENTARIS PERPUSTAKAAN]:\n${buildWorksContext(finalWorks)}\n\n(Catatan: Pengunjung meminta penjelasan/urutan bacaan/fakta. Jelaskan secara tuntas, runtut, dan lengkap apa yang ditanyakan pengunjung menggunakan wawasan literaturmu. Sebutkan juga secara sekilas jika karya terkait ada di koleksi Alistair).`;
+    } else {
+      contextString = `(Catatan: Pengunjung meminta penjelasan/urutan bacaan/fakta literatur mengenai topik tersebut. Jelaskan secara langsung, tuntas, runtut, dan informatif menggunakan wawasan literaturmu. JANGAN meminta maaf atau mengatakan "tidak ada di katalog" karena pengunjung meminta penjelasan pengetahuan, bukan pencarian inventaris fisik).`;
+    }
+    returnCatalogCards = false; // Pertanyaan penjelasan tidak perlu memunculkan kartu rekomendasi
+  }
+  // KASUS 5: Pencarian / Rekomendasi Buku Baru (BOOK_DISCOVERY)
+  else {
+    // 1. Ekstraksi tipe karya yang diinginkan dan kandidat judul dari teks
+    const preferredTypes = detectTargetType(queryText);
+    const titleCandidates = extractTitleCandidates(queryText);
+
+    // 2. Pencarian leksikal (keyword) di MySQL
+    let mysqlBooks = [];
+    try {
+      mysqlBooks = await searchMySQLBooks(titleCandidates, preferredTypes);
+    } catch (err) {
+      console.warn('[RAG] Pencarian keyword MySQL gagal:', err.message);
+    }
+
+    // 3. Pencarian semantik (vektor) di Qdrant
+    let vectorBooks = [];
+    try {
+      // Bersihkan kata tanya pengantar agar embedding fokus ke esensi semantik
+      const semanticQueryText = queryText
+        .replace(/^(apa ada|apakah ada|tolong carikan|carikan|rekomendasikan|rekomendasi|ada nggak|ada gak)\s+/i, '')
+        .trim() || queryText;
+
+      const queryVector = await getEmbedding(semanticQueryText);
+      vectorBooks = await searchSimilarBooks(queryVector, 5, 'books', preferredTypes);
+    } catch (err) {
+      console.warn('[RAG] Pencarian vektor Qdrant tidak tersedia/gagal:', err.message);
+    }
+
+    // 4. Hybrid Merge & Re-ranking dengan Ambang Batas Skor (Similarity Threshold)
+    const finalMap = new Map();
+
+    // A. Judul yang cocok persis (exact match) dari MySQL
+    const exactMatches = mysqlBooks.filter((b) => b.matchType === 'exact');
+    for (const b of exactMatches) {
+      if (!finalMap.has(b.id)) finalMap.set(b.id, b);
+    }
+    const hasExactMatch = exactMatches.length > 0;
+
+    // B. Sisa hasil pencarian keyword MySQL
+    for (const b of mysqlBooks) {
+      if (!finalMap.has(b.id)) finalMap.set(b.id, b);
+      if (finalMap.size >= 5) break;
+    }
+
+    // C. Hasil pencarian vektor semantik Qdrant (dengan ambang batas skor 0.44)
+    for (const vb of vectorBooks) {
+      if (!finalMap.has(vb.id)) {
+        // Jika tidak ada exact match dan skornya sangat rendah (< 0.44), anggap noise dan abaikan
+        if (!hasExactMatch && vb.score && vb.score < 0.44) {
+          continue;
+        }
+        if (hasExactMatch && vb.score && vb.score < 0.52) {
+          continue; // Abaikan judul luar jika judul spesifik sudah ditemukan
+        }
+        finalMap.set(vb.id, vb);
+      }
+      if (finalMap.size >= 5) break;
+    }
+
+    // Cek apakah pengunjung menanyakan keberadaan judul tertentu (misal: "apa ada manga fate", "ada komik naruto nggak")
+    const isTitleCheck = /^(apa ada|apakah ada|afa ada|ada nggak|ada gak|apakah punya|punya|ada)\s+(manga|manhwa|manhua|webtoon|novel|komik|buku)?\s+/i.test(queryText.trim());
+    const targetTitle = (titleCandidates && titleCandidates.length > 0) ? titleCandidates[0].toLowerCase() : null;
+
+    if (isTitleCheck && targetTitle) {
+      // Jika pengguna menanyakan judul tertentu, pastikan karya yang masuk ke finalWorks
+      // benar-benar memiliki judul atau sinopsis yang memuat kata targetTitle tersebut.
+      // Hal ini mencegah false-positive Qdrant (seperti buku tanpa sinopsis yang skor kosinusnya tinggi secara semu).
+      finalWorks = Array.from(finalMap.values()).filter((b) => {
+        const titleLower = (b.title || '').toLowerCase();
+        const descLower = (b.description || '').toLowerCase();
+        return titleLower.includes(targetTitle) || descLower.includes(targetTitle);
+      }).slice(0, 5);
+    } else {
+      finalWorks = Array.from(finalMap.values()).slice(0, 5);
+    }
+
+    if (finalWorks.length > 0) {
+      contextString = `[KATALOG KOLEKSI RELEVAN]\n${buildWorksContext(finalWorks)}`;
+      // Tampilkan kartu katalog HANYA jika:
+      // 1. Pengguna memang secara eksplisit meminta rekomendasi / melihat daftar katalog ("rekomendasikan", "carikan", "pilihan", "daftar")
+      // 2. ATAU judul spesifik yang dicari memang ditemukan dan cocok
+      const isExplicitRequest = /(rekomendasi|rekomendasikan|carikan|cari|saran|daftar|list|pilihan|cocok|tampilkan)/i.test(queryText);
+      returnCatalogCards = isExplicitRequest || hasExactMatch || (isTitleCheck && finalWorks.length > 0);
+    } else {
+      const missingTitleHint = targetTitle ? `judul "${titleCandidates[0]}"` : 'karya dengan kriteria tersebut';
+      contextString = `[INFO KOLEKSI EXPLORE]: Di daftar koleksi Explore Alistair saat ini belum tersimpan ${missingTitleHint}. Sampaikan secara ramah menggunakan ungkapan persis: "Di daftar koleksi Explore-ku saat ini belum tersimpan judul itu...", lalu berikan penjelasan umum mengenai karya tersebut dari wawasan literaturmu. JANGAN menampilkan kartu rekomendasi acak yang tidak sesuai.`;
+      returnCatalogCards = false; // Jangan munculkan kartu jika judulnya tidak ada!
+    }
   }
 
-  const finalWorks = Array.from(finalMap.values()).slice(0, 5);
+  // 5. Susun pesan untuk LLM
+  // PENTING: Masukkan konteks inventaris ke dalam SYSTEM prompt, BUKAN ke dalam pesan user!
+  // Dengan cara ini, AI tidak akan pernah menganggap konteks sebagai "data yang diberikan oleh user".
+  let systemPromptWithContext = ALISTAIR_SYSTEM_PROMPT;
+  if (contextString) {
+    systemPromptWithContext += `\n\n----------------------------------------\n[KONTEKS INVENTARIS PERPUSTAKAAN]:\n${contextString}`;
+  }
 
-  // 5. Susun Konteks Karya Relevan
-  const contextString = buildWorksContext(finalWorks);
-
-  // 6. Susun pesan untuk LLM
   const messages = [
-    { role: 'system', content: ALISTAIR_SYSTEM_PROMPT },
+    { role: 'system', content: systemPromptWithContext },
   ];
 
   // Tambahkan riwayat obrolan jika ada (maksimal 6 percakapan terakhir)
@@ -250,15 +427,59 @@ export async function askAlistair({ message, history = [], attachedBook = null }
     }
   }
 
-  // Prompt terkini pengunjung beserta katalog relevan
-  const augmentedPrompt = `[KATALOG KOLEKSI RELEVAN]\n${contextString}\n\n[PERTANYAAN PENGUNJUNG]\n${queryText}`;
-  messages.push({ role: 'user', content: augmentedPrompt });
+  // Pesan user HANYA berisi pertanyaan pengunjung asli tanpa manipulasi teks katalog
+  messages.push({ role: 'user', content: queryText });
 
-  // 7. Panggil Cloudflare Workers AI
+  return {
+    messages,
+    finalWorks,
+    returnCatalogCards,
+  };
+}
+
+/**
+ * Memproses pertanyaan pengguna melalui Hybrid RAG (Non-streaming response)
+ * @param {Object} params
+ * @param {string} params.message - Pesan / pertanyaan dari user
+ * @param {Array<{ role: string, content: string, metadata?: any }>} [params.history=[]] - Riwayat percakapan sebelumnya
+ * @param {Object} [params.attachedBook=null] - Karya spesifik yang dilampirkan user (misal dari tombol BookDetail)
+ * @returns {Promise<{ reply: string, books: Array<Object> }>}
+ */
+export async function askAlistair({ message, history = [], attachedBook = null }) {
+  const { messages, finalWorks, returnCatalogCards } = await prepareRAGContext({
+    message,
+    history,
+    attachedBook,
+  });
+
   const reply = await generateChatResponse(messages);
 
   return {
     reply,
-    books: finalWorks,
+    books: returnCatalogCards ? finalWorks : [],
+  };
+}
+
+/**
+ * Memproses pertanyaan pengguna melalui Hybrid RAG (Streaming response)
+ * Mengembalikan generator token stream dan daftar buku rekomendasi yang relevan
+ * @param {Object} params
+ * @param {string} params.message - Pesan / pertanyaan dari user
+ * @param {Array<{ role: string, content: string, metadata?: any }>} [params.history=[]] - Riwayat percakapan sebelumnya
+ * @param {Object} [params.attachedBook=null] - Karya spesifik yang dilampirkan user (misal dari tombol BookDetail)
+ * @returns {Promise<{ streamGenerator: AsyncGenerator<string>, books: Array<Object> }>}
+ */
+export async function askAlistairStream({ message, history = [], attachedBook = null }) {
+  const { messages, finalWorks, returnCatalogCards } = await prepareRAGContext({
+    message,
+    history,
+    attachedBook,
+  });
+
+  const streamGenerator = generateChatStream(messages);
+
+  return {
+    streamGenerator,
+    books: returnCatalogCards ? finalWorks : [],
   };
 }

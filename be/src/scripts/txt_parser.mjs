@@ -33,7 +33,7 @@ export async function parseBooksFromTxtStream(filePath, onBookParsed, options = 
     throw new Error(`File sumber data tidak ditemukan di: ${filePath}`);
   }
 
-  const { startFromId = 1 } = options;
+  const { startFromId = 1, idOffset = 0 } = options;
 
   const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
   const rl = readline.createInterface({
@@ -42,7 +42,7 @@ export async function parseBooksFromTxtStream(filePath, onBookParsed, options = 
   });
 
   let currentBlockLines = [];
-  let bookCounter = 0;
+  let bookCounter = idOffset;
   let processedCounter = 0;
 
   function processBlock(lines) {

@@ -152,25 +152,50 @@ export async function getBookFilters(req, res) {
       'SELECT DISTINCT type FROM books WHERE type IS NOT NULL AND type != "" ORDER BY type ASC'
     );
 
-    const types = typesResult.map((r) => r.type);
+    // Prioritas urutan tipe karya yang rapi dan logis
+    const typePriority = ['Manga', 'Novel', 'Manhwa', 'Comic', 'Manhua', 'Webtoon', 'Graphic Novel', 'Doujinshi'];
+    const types = typesResult
+      .map((r) => r.type)
+      .filter((t) => t && t !== 'Unknown')
+      .sort((a, b) => {
+        const idxA = typePriority.indexOf(a);
+        const idxB = typePriority.indexOf(b);
+        if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+        if (idxA !== -1) return -1;
+        if (idxB !== -1) return 1;
+        return a.localeCompare(b);
+      });
 
-    // Daftar Genre Populer
+    // Daftar Genre Terpopuler yang mencakup Manga, Manhwa, Comic, dan Novel
     const popularGenres = [
       'Romance',
-      'Drama',
       'Fantasy',
+      'Drama',
       'Comedy',
       'Action',
-      'School Life',
+      'Fiction',
+      'Adventure',
+      'Mystery',
+      'Thriller',
+      'Horror',
+      'Sci Fi',
+      'Young Adult',
+      'Historical',
+      'Supernatural',
       'Slice of Life',
+      'School Life',
       'Shounen',
       'Shoujo',
       'Seinen',
-      'Supernatural',
-      'Adventure',
-      'Mystery',
-      'Sci Fi',
+      'Psychological',
+      'Magic',
+      'Classics',
+      'Josei',
       'Isekai',
+      'Ecchi',
+      'Nonfiction',
+      'Martial Arts',
+      'Harem',
     ];
 
     res.json({
