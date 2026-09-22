@@ -40,7 +40,7 @@ export default function ChatInput({ onSendMessage, disabled = false }) {
           value={input}
           onChange={handleInput}
           onKeyDown={handleKeyDown}
-          placeholder="Ask Alistair anything..."
+          placeholder={disabled ? "Alistair sedang menyiapkan jawaban..." : "Tanyakan rekomendasi atau apapun ke Alistair..."}
           disabled={disabled}
           className="w-full resize-none bg-transparent px-3 py-2 text-sm text-base-content placeholder:text-base-content/40 focus:outline-none max-h-40 min-h-[42px]"
         />

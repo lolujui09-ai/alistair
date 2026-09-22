@@ -6,28 +6,42 @@ import { fetchBooks, fetchBookFilters } from '../services/books';
 const DEFAULT_GENRES = [
   'All',
   'Romance',
-  'Drama',
   'Fantasy',
+  'Drama',
   'Comedy',
   'Action',
-  'School Life',
+  'Fiction',
+  'Adventure',
+  'Mystery',
+  'Thriller',
+  'Horror',
+  'Sci Fi',
+  'Young Adult',
+  'Historical',
+  'Supernatural',
   'Slice of Life',
+  'School Life',
   'Shounen',
   'Shoujo',
   'Seinen',
-  'Supernatural',
-  'Adventure',
-  'Mystery',
-  'Sci Fi',
+  'Psychological',
+  'Magic',
+  'Classics',
+  'Josei',
   'Isekai',
+  'Ecchi',
+  'Nonfiction',
+  'Martial Arts',
+  'Harem',
 ];
 
 const DEFAULT_TYPES = [
   'All',
   'Manga',
+  'Novel',
   'Manhwa',
-  'Manhua',
   'Comic',
+  'Manhua',
   'Webtoon',
   'Graphic Novel',
   'Doujinshi',
@@ -159,7 +173,7 @@ export default function Explore() {
           Explore Catalog
         </h1>
         <p className="text-sm text-base-content/60 mt-1">
-          Jelajahi lebih dari {pagination.total > 0 ? pagination.total.toLocaleString('id-ID') : '80.000'} judul manga, manhwa, komik, dan novel pilihan.
+          Jelajahi lebih dari {pagination.total > 0 ? pagination.total.toLocaleString('id-ID') : '100.000'} judul manga, manhwa, komik, dan novel pilihan.
         </p>
       </div>
 

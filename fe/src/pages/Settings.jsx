@@ -1,11 +1,9 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Palette, User, MessageSquare, Trash2, Check, LogOut, LogIn } from 'lucide-react';
+import { Palette, User, Sparkles, LogOut, LogIn } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function Settings() {
-  const { theme, setTheme, user, logout, clearChatHistory } = useApp();
-  const [clearedNotice, setClearedNotice] = useState(false);
+  const { theme, setTheme, user, logout } = useApp();
 
   const availableThemes = [
     { id: 'dark', name: 'Dark (Default)' },
@@ -18,14 +16,6 @@ export default function Settings() {
     { id: 'corporate', name: 'Corporate' }
   ];
 
-  const handleClearChat = () => {
-    if (window.confirm('Are you sure you want to clear all chat history?')) {
-      clearChatHistory();
-      setClearedNotice(true);
-      setTimeout(() => setClearedNotice(false), 3000);
-    }
-  };
-
   return (
     <div className="p-4 sm:p-8 max-w-3xl mx-auto w-full space-y-8">
       <div>
@@ -33,16 +23,9 @@ export default function Settings() {
           Settings
         </h1>
         <p className="text-sm text-base-content/60 mt-1">
-          Manage your app preferences, account, and chat data.
+          Kelola preferensi tema, akun, dan informasi aplikasi Alistair.
         </p>
       </div>
-
-      {clearedNotice && (
-        <div className="alert alert-success text-sm py-2 shadow-sm">
-          <Check className="w-4 h-4" />
-          <span>Chat history has been successfully cleared.</span>
-        </div>
-      )}
 
       {/* 1. Appearance Section */}
       <div className="card bg-base-100 border border-base-300 shadow-sm">
@@ -144,34 +127,39 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* 3. Chat Section */}
+      {/* 3. About Alistair Section */}
       <div className="card bg-base-100 border border-base-300 shadow-sm">
         <div className="card-body p-5 sm:p-6 space-y-4">
           <div className="flex items-center gap-2">
-            <MessageSquare className="w-5 h-5 text-primary" />
-            <h2 className="card-title text-lg font-bold">Chat</h2>
+            <Sparkles className="w-5 h-5 text-primary" />
+            <h2 className="card-title text-lg font-bold">Tentang Alistair</h2>
           </div>
           <p className="text-xs text-base-content/60">
-            Manage your AI conversations and local history data.
+            Asisten AI kurasi dan katalog bacaan literatur Anda.
           </p>
 
-          <div className="pt-2 flex items-center justify-between border-t border-base-200 mt-2">
-            <div>
-              <h4 className="text-sm font-semibold text-base-content">Clear Chat History</h4>
-              <p className="text-xs text-base-content/50">
-                Permanently delete all stored chats and messages from this device.
-              </p>
+          <div className="p-4 rounded-xl bg-base-200/50 border border-base-300 space-y-3">
+            <p className="text-xs sm:text-sm text-base-content/80 leading-relaxed">
+              <strong className="text-base-content font-semibold">Alistair</strong> adalah asisten pintar dan kurator bacaan yang dirancang untuk membantu Anda menemukan, menjelajahi, dan mendapatkan rekomendasi mendalam seputar <span className="text-primary font-medium">Manga, Manhwa, Manhua, Novel, dan Komik</span> favorit.
+            </p>
+            <p className="text-xs sm:text-sm text-base-content/80 leading-relaxed">
+              Didukung oleh teknologi <span className="text-primary font-medium">Retrieval-Augmented Generation (RAG)</span> dan katalog puluhan ribu buku, Alistair mampu memahami preferensi alur cerita, tema, karakter, serta memberikan saran bacaan terbaik secara instan dan personal.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-base-300/60">
+              <div className="flex items-center justify-between p-2 rounded-lg bg-base-100 border border-base-300/50 text-xs">
+                <span className="text-base-content/60">Versi Aplikasi</span>
+                <span className="badge badge-sm badge-primary font-mono">v1.0.0</span>
+              </div>
+              <div className="flex items-center justify-between p-2 rounded-lg bg-base-100 border border-base-300/50 text-xs">
+                <span className="text-base-content/60">AI Engine</span>
+                <span className="badge badge-sm badge-neutral font-medium">Hybrid RAG</span>
+              </div>
             </div>
-            <button
-              onClick={handleClearChat}
-              className="btn btn-sm btn-outline btn-error gap-1.5 font-medium"
-            >
-              <Trash2 className="w-4 h-4" />
-              <span>Clear History</span>
-            </button>
           </div>
         </div>
       </div>
     </div>
   );
 }
+

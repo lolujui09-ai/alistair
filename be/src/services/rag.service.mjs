@@ -49,8 +49,11 @@ PEDOMAN UTAMA:
      * JANGAN PERNAH menolak menjawab atau meminta maaf dengan alasan "tidak ada dalam katalog". Katalog perpustakaan adalah inventaris koleksi, BUKAN batasan wawasanmu. Pengunjung sedang meminta penjelasan pengetahuan, bukan sedang mencari stok inventaris!
 
 8. KARTU REKOMENDASI KATALOG & FITUR BOOKMARK:
-   - Kartu katalog rekomendasi hanya diberikan saat karya yang relevan benar-benar cocok di koleksi Explore Alistair.
-   - Saat memberikan rekomendasi karya yang tersedia di kartu katalog, kamu dapat dengan ramah menyarankan pengunjung: "Kamu bisa menyimpan atau mem-bookmark judul-judul di atas agar tersimpan di daftar bacaan favoritmu!"`;
+   - Kartu katalog disematkan di chat pada situasi:
+     * Pengunjung meminta rekomendasi atau mencari karya tertentu yang tersedia di perpustakaan.
+     * Pengunjung menanyakan keberadaan suatu karya di Explore / ingin mem-bookmark / menyimpan karya yang sedang dibahas.
+   - Saat kartu katalog disematkan di chat, informasikan kepada pengunjung dengan ramah bahwa kartunya sudah kamu sematkan di bawah obrolan ini, dan mereka bisa langsung menekan tombol Bookmark/Simpan pada kartu tersebut untuk menyimpannya ke daftar bacaan favorit atau mengkliknya untuk membaca sinopsis lengkap.
+   - JANGAN menyuruh pengunjung mencari manual ke halaman Explore jika kartunya sudah kamu sematkan langsung di chat!`;
 
 /**
  * Mendeteksi preferensi tipe karya dari pesan user (manga, manhwa, webtoon, dll.)
@@ -82,7 +85,7 @@ function extractTitleCandidates(text) {
   }
 
   // 2. Pembersihan kata-kata pengantar/basa-basi
-  const stopWords = /\b(apa|apakah|afa|adakah|ada|ada nggak|ada gak|apakah punya|punya|kamu|tau|tahu|tentang|tolong|rekomendasi|rekomendasikan|carikan|cari|bisa|kah|dong|ya|ceritakan|info|sinopsis|review|analisis|mengenai|karya|oleh|buatan|buku|komik|manga|manhwa|manhua|webtoon|novel|bagaimanakah|bagaimana|siapa|pengarang|penulis)\b/gi;
+  const stopWords = /\b(apa|apakah|afa|adakah|ada|ada nggak|ada gak|apakah punya|punya|kamu|tau|tahu|tentang|tolong|rekomendasi|rekomendasikan|carikan|cari|bisa|bias|kah|dong|ya|ceritakan|menceritakan|cerita|alur|info|sinopsis|review|analisis|mengenai|karya|oleh|buatan|buku|komik|manga|manhwa|manhua|webtoon|novel|bagaimanakah|bagaimana|siapa|pengarang|penulis|aku|saya|kita|ingin|mau|baca|tempat|link|di|ke|dari|pada|dalam|explore|koleksi|katalog|bookmark|membookmark|membookmarknya|simpan|favorit|disimpan|dibookmark)\b/gi;
   const cleaned = text
     .replace(stopWords, ' ')
     .replace(/[?!.,;:()[\]{}]/g, ' ')
@@ -96,7 +99,11 @@ function extractTitleCandidates(text) {
   // 3. Fallback: jika teks pendek (misal "dandadan" atau "one piece"), gunakan teks aslinya
   const rawClean = text.trim();
   if (rawClean.length <= 40 && !candidates.includes(rawClean)) {
-    candidates.push(rawClean);
+    // Jangan jadikan rawClean sebagai kandidat jika isinya murni kata tanya explore/bookmark
+    const isPureActionQuery = /^(apa ada di explore|aku ingin membookmarknya|bisa dibookmark|ada di explore)$/i.test(rawClean);
+    if (!isPureActionQuery) {
+      candidates.push(rawClean);
+    }
   }
 
   return candidates;
@@ -160,9 +167,12 @@ async function searchMySQLBooks(candidates, preferredTypes = null) {
 
 /**
  * Mengekstrak karya/buku yang baru saja dibahas dari riwayat obrolan
+ * Memeriksa metadata.books terlebih dahulu, jika kosong mencari judul yang dibahas dari pesan terakhir via MySQL
  */
-function extractRecentBooksFromHistory(history) {
+async function resolveRecentBooksFromHistory(history) {
   if (!Array.isArray(history) || history.length === 0) return [];
+
+  // 1. Cek metadata.books atau books dari pesan asisten terbaru
   for (let i = history.length - 1; i >= 0; i--) {
     const msg = history[i];
     if (msg.role === 'assistant' && msg.metadata) {
@@ -179,6 +189,28 @@ function extractRecentBooksFromHistory(history) {
       return msg.books;
     }
   }
+
+  // 2. Jika metadata.books kosong (misal turn sebelumnya adalah KNOWLEDGE_EXPLANATION),
+  // telusuri pesan terbaru (terutama pesan user atau assistant terakhir)
+  const recentMessages = history.slice(-4);
+  for (let i = recentMessages.length - 1; i >= 0; i--) {
+    const text = recentMessages[i].content || recentMessages[i].text || '';
+    if (!text) continue;
+
+    const candidates = extractTitleCandidates(text);
+    if (candidates.length > 0) {
+      try {
+        const mysqlMatches = await searchMySQLBooks(candidates.slice(0, 3));
+        if (mysqlMatches.length > 0) {
+          const exact = mysqlMatches.filter((b) => b.matchType === 'exact');
+          return exact.length > 0 ? exact.slice(0, 3) : mysqlMatches.slice(0, 3);
+        }
+      } catch {
+        // Abaikan jika error query
+      }
+    }
+  }
+
   return [];
 }
 
@@ -203,23 +235,26 @@ function classifyUserIntent(queryText, previousActiveBooks = []) {
     return 'CHIT_CHAT';
   }
 
-  // 2. Pertanyaan di mana membaca
+  // 2. Permintaan Bookmark / Simpan / Akses Explore / Minta Kartu
+  const isBookmarkOrExplore = /(bookmark|membookmark|simpan|favorit|disimpan|dibookmark|di\s*explore|ada di explore|tersedia di explore|katalog|kartunya|tampilkan kartunya|mana kartunya)/i.test(rawLower);
+
+  // 3. Pertanyaan di mana membaca
   const whereToReadRegex = /(dimana|di mana|dimanakah|di manakah|bisa baca|baca di mana|link baca|tempat baca|baca manga|baca novel|baca komik|baca manhwa).*(baca|bisa|akses|nemu|beli|cari)/i;
   const isWhereToRead = whereToReadRegex.test(rawLower) || /^(dimana|di mana) (aku|kita|saya)? ?(bisa|bias)? ?(baca|nonton|akses|dapatin|dapetin)/i.test(rawLower);
 
-  // 3. Referensi ke rekomendasi sebelumnya ("rekomendasi pertama", "yang tadi", "nomor 1")
+  // 4. Referensi ke rekomendasi sebelumnya ("rekomendasi pertama", "yang tadi", "nomor 1")
   const ordinalRefRegex = /(rekomendasi|judul|karya|pilihan)?\s*(pertama|ke-?1|ke-?2|ke-?3|kedua|ketiga|tadi|nomor 1|nomor 2|nomor 3|no 1|no 2|no 3)/i;
   const isOrdinalRef = ordinalRefRegex.test(rawLower);
 
-  // 4. Klarifikasi atau komplain ("kenapa kamu bilang", "apa maksudmu")
+  // 5. Klarifikasi atau komplain ("kenapa kamu bilang", "apa maksudmu")
   const isClarification = /(apa maksud|kenapa bilang|kenapa kamu bilang|tadi kamu bilang|maksudmu apa|kenapa tidak ada|kenapa nggak ada)/i.test(rawLower);
 
-  // 5. Pertanyaan detail tentang karya yang sedang dibahas tanpa menyebut judul baru
+  // 6. Pertanyaan detail tentang karya yang sedang dibahas tanpa menyebut judul baru
   const isDetailQuestion = /(siapa|siapakah) (penulis|pengarang|author|pembuat)nya/i.test(rawLower) ||
                            /(apakah|apa) (sudah|udah) (tamat|selesai)/i.test(rawLower) ||
                            /(berapa|ada berapa) (chapter|bab|volume)/i.test(rawLower);
 
-  if ((isWhereToRead || isOrdinalRef || isClarification || isDetailQuestion) && previousActiveBooks.length > 0) {
+  if ((isBookmarkOrExplore || isWhereToRead || isOrdinalRef || isClarification || isDetailQuestion) && previousActiveBooks.length > 0) {
     return 'FOLLOW_UP';
   }
 
@@ -227,7 +262,7 @@ function classifyUserIntent(queryText, previousActiveBooks = []) {
     return 'FOLLOW_UP';
   }
 
-  // 6. Pertanyaan penjelasan, urutan novel/bacaan, trivia, lore, ringkasan, atau analisis umum
+  // 7. Pertanyaan penjelasan, urutan novel/bacaan, trivia, lore, ringkasan, atau analisis umum
   const isExplanation = /(urutan|urutan baca|urutan rilis|urutan kronologis|alur cerita|sinopsis|ringkasan|jelaskan|ceritakan tentang|siapa itu|siapakah|maksud dari|arti dari|kenapa|mengapa|bagaimana cara|penjelasan|bedanya|perbedaan|latar belakang|ending|tamatnya|karakter)/i.test(rawLower);
   if (isExplanation) {
     return 'KNOWLEDGE_EXPLANATION';
@@ -268,7 +303,7 @@ export async function prepareRAGContext({ message, history = [], attachedBook = 
   }
 
   const queryText = message.trim();
-  const previousActiveBooks = extractRecentBooksFromHistory(history);
+  const previousActiveBooks = await resolveRecentBooksFromHistory(history);
   const intent = classifyUserIntent(queryText, previousActiveBooks);
 
   let finalWorks = [];
@@ -284,8 +319,17 @@ export async function prepareRAGContext({ message, history = [], attachedBook = 
   // KASUS 2: Pertanyaan lanjutan / Follow-up dari rekomendasi yang sudah diberikan
   else if (intent === 'FOLLOW_UP' && previousActiveBooks.length > 0) {
     finalWorks = previousActiveBooks.slice(0, 3);
-    contextString = `[KARYA YANG BARU SAJA ANDA REKOMENDASIKAN KEPADA PENGUNJUNG]:\n${buildWorksContext(finalWorks)}\n\n(Catatan: Pengunjung sedang menanyakan hal lanjutan seputar karya di atas. Jawablah langsung secara konsisten dan jangan menyangkal keberadaannya).`;
-    returnCatalogCards = false; // PENTING: Jangan munculkan kartu duplikat di chat follow-up!
+
+    // Cek apakah pengunjung menanyakan bookmark, simpan, ketersediaan di explore, atau meminta kartu
+    const isBookmarkOrExplore = /(bookmark|membookmark|simpan|favorit|disimpan|dibookmark|di\s*explore|ada di explore|tersedia di explore|katalog|kartu|kartunya|tampilkan|munculkan)/i.test(queryText);
+
+    if (isBookmarkOrExplore) {
+      returnCatalogCards = true; // WAJIB tampilkan kartu agar user bisa langsung klik bookmark / buka detail!
+      contextString = `[KARYA DI EXPLORE YANG INGIN DIBOOKMARK / DILIHAT PENGUNJUNG]:\n${buildWorksContext(finalWorks)}\n\n(Catatan: Pengunjung menanyakan apakah karya yang sedang dibahas ("${finalWorks[0].title}") ada di Explore Alistair dan ingin menyimpannya / mem-bookmark-nya. Konfirmasi dengan ramah dan hangat bahwa karya tersebut memang tersedia di Explore Alistair dan kartu rekomendasinya telah kamu sematkan di chat ini, sehingga pengunjung dapat langsung menekan tombol Bookmark/Simpan di kartu tersebut tanpa perlu mencari manual).`;
+    } else {
+      returnCatalogCards = false; // Pertanyaan lore/detail/platform tidak perlu spam kartu duplikat
+      contextString = `[KARYA YANG SEDANG DIBAHAS BERSAMA PENGUNJUNG]:\n${buildWorksContext(finalWorks)}\n\n(Catatan: Pengunjung sedang menanyakan hal lanjutan seputar karya di atas. Jawablah langsung secara konsisten dan jangan menyangkal keberadaannya).`;
+    }
   }
   // KASUS 3: Sapaan umum / Basa-basi santai (Chit-Chat)
   else if (intent === 'CHIT_CHAT') {
@@ -389,13 +433,21 @@ export async function prepareRAGContext({ message, history = [], attachedBook = 
       finalWorks = Array.from(finalMap.values()).slice(0, 5);
     }
 
+    const isExplicitRequest = /(rekomendasi|rekomendasikan|carikan|cari|saran|daftar|list|pilihan|cocok|tampilkan|kartu|kartunya)/i.test(queryText);
+    const isBookmarkOrExplore = /(bookmark|membookmark|simpan|favorit|disimpan|dibookmark|di\s*explore|ada di explore|tersedia di explore|katalog)/i.test(queryText);
+
+    // Fallback: Jika pencarian teks baru tidak menemukan buku tetapi ada karya aktif di riwayat sebelumnya
+    // dan user menanyakan bookmark/explore/kartu:
+    if (finalWorks.length === 0 && previousActiveBooks.length > 0 && (isBookmarkOrExplore || isExplicitRequest)) {
+      finalWorks = previousActiveBooks.slice(0, 3);
+    }
+
     if (finalWorks.length > 0) {
       contextString = `[KATALOG KOLEKSI RELEVAN]\n${buildWorksContext(finalWorks)}`;
       // Tampilkan kartu katalog HANYA jika:
-      // 1. Pengguna memang secara eksplisit meminta rekomendasi / melihat daftar katalog ("rekomendasikan", "carikan", "pilihan", "daftar")
+      // 1. Pengguna memang secara eksplisit meminta rekomendasi / bookmark / explore / tampilkan kartu
       // 2. ATAU judul spesifik yang dicari memang ditemukan dan cocok
-      const isExplicitRequest = /(rekomendasi|rekomendasikan|carikan|cari|saran|daftar|list|pilihan|cocok|tampilkan)/i.test(queryText);
-      returnCatalogCards = isExplicitRequest || hasExactMatch || (isTitleCheck && finalWorks.length > 0);
+      returnCatalogCards = isExplicitRequest || isBookmarkOrExplore || hasExactMatch || (isTitleCheck && finalWorks.length > 0);
     } else {
       const missingTitleHint = targetTitle ? `judul "${titleCandidates[0]}"` : 'karya dengan kriteria tersebut';
       contextString = `[INFO KOLEKSI EXPLORE]: Di daftar koleksi Explore Alistair saat ini belum tersimpan ${missingTitleHint}. Sampaikan secara ramah menggunakan ungkapan persis: "Di daftar koleksi Explore-ku saat ini belum tersimpan judul itu...", lalu berikan penjelasan umum mengenai karya tersebut dari wawasan literaturmu. JANGAN menampilkan kartu rekomendasi acak yang tidak sesuai.`;

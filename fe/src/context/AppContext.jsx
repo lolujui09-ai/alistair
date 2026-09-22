@@ -1,72 +1,19 @@
-import { createContext, useContext, useState, useEffect } from 'react';
-import { mockBooks } from '../data/mockBooks';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { loginUser, registerUser, fetchUserProfile, logoutUser } from '../services/auth';
 import { fetchBooks } from '../services/books';
+import { fetchUserBookmarks, toggleUserBookmark } from '../services/bookmarks';
+import {
+  fetchChatSessions,
+  fetchSessionDetail,
+  togglePinSessionApi,
+  toggleArchiveSessionApi,
+  renameChatSessionApi,
+  deleteChatSessionApi,
+  sendChatMessageApi,
+  sendChatMessageStreamApi,
+} from '../services/chat';
 
 const AppContext = createContext();
-
-const INITIAL_SESSIONS = [
-  {
-    id: 'session-1',
-    title: 'Manhwa santai',
-    createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
-    messages: [
-      {
-        id: 'm1',
-        sender: 'user',
-        text: 'Aku ingin manhwa fantasy yang santai dengan setting pedesaan.',
-        timestamp: '14:20'
-      },
-      {
-        id: 'm2',
-        sender: 'alistair',
-        text: 'Tentu! Kalau kamu mencari suasana yang lebih tenang dan santai dengan perjalanan atau nuansa pedesaan yang menyejukkan hati, berikut beberapa pilihan yang sangat aku rekomendasikan:',
-        timestamp: '14:20',
-        books: [mockBooks[0], mockBooks[4]]
-      }
-    ]
-  },
-  {
-    id: 'session-2',
-    title: 'Fantasy recommendation',
-    createdAt: new Date(Date.now() - 3600000 * 24).toISOString(),
-    messages: [
-      {
-        id: 'm3',
-        sender: 'user',
-        text: 'Rekomendasi manhwa aksi fantasi terbaik saat ini?',
-        timestamp: 'Kemarin'
-      },
-      {
-        id: 'm4',
-        sender: 'alistair',
-        text: 'Dua judul aksi fantasi paling populer dengan dungeon, sistem quest, dan skenario survival tingkat tinggi:',
-        timestamp: 'Kemarin',
-        books: [mockBooks[1], mockBooks[2]]
-      }
-    ]
-  },
-  {
-    id: 'session-3',
-    title: 'Buku untuk weekend',
-    createdAt: new Date(Date.now() - 3600000 * 48).toISOString(),
-    messages: [
-      {
-        id: 'm5',
-        sender: 'user',
-        text: 'Ada novel menarik dan reflektif untuk dibaca akhir pekan?',
-        timestamp: '2 hari lalu'
-      },
-      {
-        id: 'm6',
-        sender: 'alistair',
-        text: 'Coba baca The Midnight Library atau A Man Called Ove. Keduanya membawa kisah hangat tentang pilihan hidup dan harapan.',
-        timestamp: '2 hari lalu',
-        books: [mockBooks[7], mockBooks[4]]
-      }
-    ]
-  }
-];
 
 export function AppProvider({ children }) {
   // Theme state
@@ -83,146 +30,27 @@ export function AppProvider({ children }) {
     setThemeState(newTheme);
   };
 
-  // Books (dimuat dari backend, fallback ke mockBooks)
-  const [books, setBooks] = useState(mockBooks);
+  // Books catalog
+  const [books, setBooks] = useState([]);
 
   useEffect(() => {
     async function loadInitialBooks() {
       try {
-        const res = await fetchBooks({ limit: 12 });
+        const res = await fetchBooks({ limit: 24 });
         if (res.success && res.data && res.data.length > 0) {
           setBooks(res.data);
         }
       } catch (err) {
-        console.warn('Backend books load fallback to mock:', err);
+        console.warn('Backend books load error:', err);
       }
     }
     loadInitialBooks();
   }, []);
 
-  // Bookmarks
-  const [bookmarks, setBookmarks] = useState(() => {
-    const saved = localStorage.getItem('alistair-bookmarks');
-    return saved ? JSON.parse(saved) : [1, 2];
-  });
-
-  useEffect(() => {
-    localStorage.setItem('alistair-bookmarks', JSON.stringify(bookmarks));
-  }, [bookmarks]);
-
-  const toggleBookmark = (bookId) => {
-    setBookmarks((prev) =>
-      prev.includes(bookId) ? prev.filter((id) => id !== bookId) : [...prev, bookId]
-    );
-  };
-
-  const isBookmarked = (bookId) => bookmarks.includes(bookId);
-
-  // Chat sessions
-  const [sessions, setSessions] = useState(() => {
-    const saved = localStorage.getItem('alistair-sessions');
-    return saved ? JSON.parse(saved) : INITIAL_SESSIONS;
-  });
-
-  const [currentSessionId, setCurrentSessionId] = useState(() => {
-    return sessions[0]?.id || null;
-  });
-
-  useEffect(() => {
-    localStorage.setItem('alistair-sessions', JSON.stringify(sessions));
-  }, [sessions]);
-
-  const currentSession = sessions.find((s) => s.id === currentSessionId) || null;
-
-  const startNewChat = () => {
-    setCurrentSessionId(null);
-  };
-
-  const selectSession = (id) => {
-    setCurrentSessionId(id);
-  };
-
-  const sendMessage = (text, attachedBook = null) => {
-    if (!text.trim()) return;
-
-    const userMessage = {
-      id: `msg-${Date.now()}-user`,
-      sender: 'user',
-      text,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    };
-
-    // Find smart book matches
-    const lower = text.toLowerCase();
-    let matchedBooks;
-    if (attachedBook) {
-      matchedBooks = [attachedBook];
-    } else {
-      const filtered = books.filter((b) => {
-        return (
-          (b.title && lower.includes(b.title.toLowerCase())) ||
-          (b.author && lower.includes(b.author.toLowerCase())) ||
-          (b.type && lower.includes(b.type.toLowerCase())) ||
-          (b.genre && lower.includes(b.genre.toLowerCase())) ||
-          (b.format && lower.includes(b.format.toLowerCase())) ||
-          (b.tags && b.tags.some((t) => lower.includes(t.toLowerCase())))
-        );
-      });
-      matchedBooks = filtered.length > 0 ? filtered : books.slice(0, 2);
-    }
-
-    let aiReplyText;
-    if (attachedBook) {
-      aiReplyText = `Buku **${attachedBook.title}** karya ${attachedBook.author} adalah pilihan yang luar biasa! Ceritanya menggabungkan nuansa ${attachedBook.genre}. Apakah kamu ingin tahu lebih lanjut mengenai ringkasan cerita atau karakternya?`;
-    } else if (lower.includes('santai') || lower.includes('pedesaan') || lower.includes('relax')) {
-      aiReplyText = `Untuk bacaan yang santai dan menenangkan jiwa, ini buku/komik yang paling pas untuk dinikmati dengan secangkir teh atau kopi:`;
-    } else if (lower.includes('fantasi') || lower.includes('fantasy') || lower.includes('magic')) {
-      aiReplyText = `Dunia fantasi yang kaya dengan sihir dan petualangan epik! Ini beberapa judul terbaik di koleksi Alistair:`;
-    } else if (lower.includes('aksi') || lower.includes('action') || lower.includes('level')) {
-      aiReplyText = `Kalau kamu suka ketegangan, leveling system, dan aksi bertarung tanpa henti, kamu wajib membaca ini:`;
-    } else {
-      aiReplyText = `Menarik sekali! Berdasarkan apa yang kamu cari, aku menemukan beberapa rekomendasi bacaan yang sangat cocok untukmu:`;
-    }
-
-    const aiMessage = {
-      id: `msg-${Date.now()}-ai`,
-      sender: 'alistair',
-      text: aiReplyText,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      books: matchedBooks.slice(0, 3)
-    };
-
-    if (currentSessionId && currentSession) {
-      setSessions((prev) =>
-        prev.map((s) => {
-          if (s.id === currentSessionId) {
-            return {
-              ...s,
-              messages: [...s.messages, userMessage, aiMessage]
-            };
-          }
-          return s;
-        })
-      );
-    } else {
-      // Create new session
-      const newSessionTitle = text.slice(0, 26) + (text.length > 26 ? '...' : '');
-      const newSession = {
-        id: `session-${Date.now()}`,
-        title: newSessionTitle,
-        createdAt: new Date().toISOString(),
-        messages: [userMessage, aiMessage]
-      };
-      setSessions((prev) => [newSession, ...prev]);
-      setCurrentSessionId(newSession.id);
-    }
-  };
-
-  const clearChatHistory = () => {
-    setSessions([]);
-    setCurrentSessionId(null);
-    localStorage.removeItem('alistair-sessions');
-  };
+  // Login Prompt Modal state
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const openLoginModal = useCallback(() => setIsLoginModalOpen(true), []);
+  const closeLoginModal = useCallback(() => setIsLoginModalOpen(false), []);
 
   // Auth state with Backend Integration
   const [token, setToken] = useState(() => localStorage.getItem('alistair-token') || null);
@@ -231,7 +59,7 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : null;
   });
 
-  // Verify token on mount if token exists
+  // Verify token on mount or token change
   useEffect(() => {
     async function verifyAuth() {
       if (token) {
@@ -247,11 +75,379 @@ export function AppProvider({ children }) {
           localStorage.removeItem('alistair-token');
           localStorage.removeItem('alistair-user');
         }
+      } else {
+        setUser(null);
       }
     }
     verifyAuth();
   }, [token]);
 
+  // Bookmarks state (User-isolated from MySQL)
+  const [bookmarks, setBookmarks] = useState([]);
+
+  // Chat sessions state (User-isolated from MySQL)
+  const [sessions, setSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [isAiResponding, setIsAiResponding] = useState(false);
+
+  // Synchronize Bookmarks & Chat Sessions from MySQL when user is logged in
+  useEffect(() => {
+    async function syncUserData() {
+      if (token && user?.isLoggedIn) {
+        try {
+          const [userBookmarks, userSessions] = await Promise.all([
+            fetchUserBookmarks(token).catch((err) => {
+              console.warn('Fetch bookmarks failed:', err);
+              return [];
+            }),
+            fetchChatSessions(token).catch((err) => {
+              console.warn('Fetch chat sessions failed:', err);
+              return [];
+            }),
+          ]);
+
+          setBookmarks(userBookmarks);
+          setSessions(userSessions);
+
+          if (userSessions.length > 0) {
+            // Select active non-archived session if available
+            const activeSession = userSessions.find((s) => !s.isArchived) || userSessions[0];
+            setCurrentSessionId(activeSession.id);
+          } else {
+            setCurrentSessionId(null);
+          }
+        } catch (err) {
+          console.error('Failed to sync user data from MySQL:', err);
+        }
+      } else {
+        // Guest or logged out: clear memory so no data leaks
+        setBookmarks([]);
+        setSessions([]);
+        setCurrentSessionId(null);
+      }
+    }
+
+    syncUserData();
+  }, [token, user?.isLoggedIn]);
+
+  // Load messages for the currently selected session if not yet loaded
+  useEffect(() => {
+    async function loadCurrentSessionMessages() {
+      if (!currentSessionId || !token || !user?.isLoggedIn) return;
+
+      const target = sessions.find((s) => s.id === currentSessionId);
+      if (target && target.messages && target.messages.length > 0) {
+        return; // Already loaded
+      }
+
+      try {
+        const detail = await fetchSessionDetail(currentSessionId, token);
+        if (detail && detail.messages) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === currentSessionId ? { ...s, messages: detail.messages } : s
+            )
+          );
+        }
+      } catch (err) {
+        console.warn('Failed to load session messages:', err);
+      }
+    }
+
+    loadCurrentSessionMessages();
+  }, [currentSessionId, token, user?.isLoggedIn, sessions]);
+
+  const currentSession = sessions.find((s) => s.id === currentSessionId) || null;
+
+  // Bookmarks handlers
+  const toggleBookmark = async (bookId) => {
+    if (!user?.isLoggedIn || !token) {
+      openLoginModal();
+      return;
+    }
+
+    const numId = Number(bookId);
+    const wasBookmarked = bookmarks.includes(numId);
+
+    // Optimistic UI update
+    setBookmarks((prev) =>
+      wasBookmarked ? prev.filter((id) => id !== numId) : [...prev, numId]
+    );
+
+    try {
+      const res = await toggleUserBookmark(numId, token);
+      if (res.bookmarked) {
+        setBookmarks((prev) => (prev.includes(numId) ? prev : [...prev, numId]));
+      } else {
+        setBookmarks((prev) => prev.filter((id) => id !== numId));
+      }
+    } catch (err) {
+      // Revert on error
+      setBookmarks((prev) =>
+        wasBookmarked ? [...prev, numId] : prev.filter((id) => id !== numId)
+      );
+      console.error('Toggle bookmark error:', err);
+    }
+  };
+
+  const isBookmarked = (bookId) => bookmarks.includes(Number(bookId));
+
+  // Chat handlers
+  const startNewChat = () => {
+    setCurrentSessionId(null);
+  };
+
+  const selectSession = (id) => {
+    setCurrentSessionId(id);
+  };
+
+  const sendMessage = async (text, attachedBook = null) => {
+    if (!text || !text.trim()) return;
+    if (!user?.isLoggedIn || !token) {
+      openLoginModal();
+      return;
+    }
+
+    const trimmedText = text.trim();
+    const tempUserMsgId = `temp-user-${Date.now()}`;
+    const tempAiMsgId = `temp-ai-${Date.now()}`;
+    const timestampNow = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+    const userMessage = {
+      id: tempUserMsgId,
+      sender: 'user',
+      text: trimmedText,
+      timestamp: timestampNow,
+    };
+
+    const initialAiMessage = {
+      id: tempAiMsgId,
+      sender: 'alistair',
+      text: '',
+      isStreaming: true,
+      books: [],
+      timestamp: timestampNow,
+    };
+
+    setIsAiResponding(true);
+
+    const isNewSession = !currentSessionId;
+    const initialSessionId = currentSessionId || `temp-session-${Date.now()}`;
+    let targetSessionId = initialSessionId;
+
+    if (isNewSession) {
+      const newTempSession = {
+        id: initialSessionId,
+        title: trimmedText.slice(0, 30),
+        isPinned: false,
+        isArchived: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        messages: [userMessage, initialAiMessage],
+      };
+      setSessions((prev) => [newTempSession, ...prev]);
+      setCurrentSessionId(initialSessionId);
+    } else {
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === initialSessionId
+            ? { ...s, messages: [...(s.messages || []), userMessage, initialAiMessage] }
+            : s
+        )
+      );
+    }
+
+    try {
+      await sendChatMessageStreamApi({
+        message: trimmedText,
+        sessionId: isNewSession ? null : initialSessionId,
+        attachedBook,
+        token,
+        onInit: (data) => {
+          const realSessionId = String(data.sessionId);
+          targetSessionId = realSessionId;
+          if (isNewSession) {
+            setCurrentSessionId(realSessionId);
+          }
+
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === initialSessionId || s.id === realSessionId) {
+                const updatedMessages = (s.messages || []).map((m) => {
+                  if (m.id === tempUserMsgId && data.userMessage) {
+                    return { ...m, id: String(data.userMessage.id) };
+                  }
+                  if (m.id === tempAiMsgId) {
+                    return { ...m, books: data.books || [] };
+                  }
+                  return m;
+                });
+
+                return {
+                  ...s,
+                  id: realSessionId,
+                  title: data.sessionTitle || s.title,
+                  messages: updatedMessages,
+                };
+              }
+              return s;
+            })
+          );
+        },
+        onToken: (chunkText) => {
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === targetSessionId || s.id === initialSessionId) {
+                const updatedMessages = (s.messages || []).map((m) => {
+                  if (m.id === tempAiMsgId) {
+                    return { ...m, text: (m.text || '') + chunkText };
+                  }
+                  return m;
+                });
+                return { ...s, messages: updatedMessages };
+              }
+              return s;
+            })
+          );
+        },
+        onDone: (data) => {
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === targetSessionId || s.id === initialSessionId) {
+                const updatedMessages = (s.messages || []).map((m) => {
+                  if (m.id === tempAiMsgId) {
+                    return {
+                      ...m,
+                      id: data.assistantMessageId ? String(data.assistantMessageId) : m.id,
+                      isStreaming: false,
+                      timestamp: data.timestamp || m.timestamp,
+                    };
+                  }
+                  return m;
+                });
+                return { ...s, updatedAt: new Date().toISOString(), messages: updatedMessages };
+              }
+              return s;
+            })
+          );
+          setIsAiResponding(false);
+        },
+        onError: (err) => {
+          console.error('[Stream Error]:', err);
+          setSessions((prev) =>
+            prev.map((s) => {
+              if (s.id === targetSessionId || s.id === initialSessionId) {
+                const updatedMessages = (s.messages || []).map((m) => {
+                  if (m.id === tempAiMsgId) {
+                    return {
+                      ...m,
+                      isStreaming: false,
+                      text: m.text || 'Maaf, terjadi kendala saat memproses jawaban. Silakan coba kirim kembali pesanmu.',
+                    };
+                  }
+                  return m;
+                });
+                return { ...s, messages: updatedMessages };
+              }
+              return s;
+            })
+          );
+          setIsAiResponding(false);
+        },
+      });
+    } catch (err) {
+      console.error('Failed to send chat message stream:', err);
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id === targetSessionId || s.id === initialSessionId) {
+            const updatedMessages = (s.messages || []).map((m) => {
+              if (m.id === tempAiMsgId) {
+                return {
+                  ...m,
+                  isStreaming: false,
+                  text: m.text || 'Maaf, terjadi kendala saat memproses pesanmu.',
+                };
+              }
+              return m;
+            });
+            return { ...s, messages: updatedMessages };
+          }
+          return s;
+        })
+      );
+      setIsAiResponding(false);
+    }
+  };
+
+  const togglePinSession = async (sessionId) => {
+    if (!token) return;
+
+    // Optimistic UI update
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, isPinned: !s.isPinned } : s))
+    );
+
+    try {
+      await togglePinSessionApi(sessionId, token);
+    } catch (err) {
+      console.error('Toggle pin session error:', err);
+    }
+  };
+
+  const toggleArchiveSession = async (sessionId) => {
+    if (!token) return;
+
+    // Optimistic UI update
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, isArchived: !s.isArchived } : s))
+    );
+
+    if (currentSessionId === sessionId) {
+      const remaining = sessions.filter((s) => s.id !== sessionId && !s.isArchived);
+      setCurrentSessionId(remaining[0]?.id || null);
+    }
+
+    try {
+      await toggleArchiveSessionApi(sessionId, token);
+    } catch (err) {
+      console.error('Toggle archive session error:', err);
+    }
+  };
+
+  const renameSession = async (sessionId, newTitle) => {
+    if (!token || !newTitle || !newTitle.trim()) return;
+
+    const trimmed = newTitle.trim();
+    // Optimistic UI update
+    setSessions((prev) =>
+      prev.map((s) => (s.id === sessionId ? { ...s, title: trimmed } : s))
+    );
+
+    try {
+      await renameChatSessionApi(sessionId, trimmed, token);
+    } catch (err) {
+      console.error('Rename chat session error:', err);
+    }
+  };
+
+  const deleteSession = async (sessionId) => {
+    if (!token) return;
+
+    // Optimistic UI update
+    setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    if (currentSessionId === sessionId) {
+      const remaining = sessions.filter((s) => s.id !== sessionId);
+      setCurrentSessionId(remaining[0]?.id || null);
+    }
+
+    try {
+      await deleteChatSessionApi(sessionId, token);
+    } catch (err) {
+      console.error('Delete chat session error:', err);
+    }
+  };
+
+  // Auth actions
   const login = async (email, password) => {
     const data = await loginUser(email, password);
     const userData = { ...data.user, isLoggedIn: true };
@@ -278,8 +474,13 @@ export function AppProvider({ children }) {
     }
     setUser(null);
     setToken(null);
+    setBookmarks([]);
+    setSessions([]);
+    setCurrentSessionId(null);
     localStorage.removeItem('alistair-token');
     localStorage.removeItem('alistair-user');
+    localStorage.removeItem('alistair-bookmarks');
+    localStorage.removeItem('alistair-sessions');
   };
 
   return (
@@ -297,12 +498,19 @@ export function AppProvider({ children }) {
         startNewChat,
         selectSession,
         sendMessage,
-        clearChatHistory,
+        togglePinSession,
+        toggleArchiveSession,
+        renameSession,
+        deleteSession,
+        isAiResponding,
+        isLoginModalOpen,
+        openLoginModal,
+        closeLoginModal,
         user,
         token,
         login,
         register,
-        logout
+        logout,
       }}
     >
       {children}

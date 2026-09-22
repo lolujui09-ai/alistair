@@ -26,7 +26,7 @@ export default function Register() {
 
     try {
       await register(name, email, password);
-      navigate('/');
+      navigate('/explore', { replace: true });
     } catch (err) {
       setError(err.message || 'Registration failed. Please try again.');
     } finally {

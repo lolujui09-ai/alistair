@@ -3,6 +3,7 @@ import BookCard from './BookCard';
 
 export default function ChatMessage({ message }) {
   const isUser = message.sender === 'user';
+  const isStreaming = Boolean(message.isStreaming);
 
   return (
     <div className={`chat ${isUser ? 'chat-end' : 'chat-start'} my-3 max-w-4xl mx-auto w-full px-2 sm:px-4`}>
@@ -26,7 +27,19 @@ export default function ChatMessage({ message }) {
             : 'bg-base-200 text-base-content border border-base-300'
         }`}
       >
-        <p className="whitespace-pre-wrap">{message.text}</p>
+        {isStreaming && !message.text ? (
+          <div className="flex items-center gap-2 py-1 text-base-content/70">
+            <span className="loading loading-dots loading-sm text-primary"></span>
+            <span className="text-xs font-medium animate-pulse">Alistair sedang menyiapkan jawaban...</span>
+          </div>
+        ) : (
+          <p className="whitespace-pre-wrap">
+            {message.text}
+            {isStreaming && (
+              <span className="inline-block w-1.5 h-3.5 ml-1 bg-primary align-middle animate-pulse rounded-xs" />
+            )}
+          </p>
+        )}
 
         {/* Attached Book Cards */}
         {message.books && message.books.length > 0 && (

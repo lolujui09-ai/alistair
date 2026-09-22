@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { Sparkles, Mail, Lock, AlertCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
@@ -10,6 +10,9 @@ export default function Login() {
   const [error, setError] = useState('');
   const { login } = useApp();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const from = location.state?.from || '/explore';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -20,7 +23,7 @@ export default function Login() {
 
     try {
       await login(email, password);
-      navigate('/');
+      navigate(from, { replace: true });
     } catch (err) {
       setError(err.message || 'Login failed. Please check your credentials.');
     } finally {

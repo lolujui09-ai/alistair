@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -6,13 +7,40 @@ import {
   Settings,
   LogIn,
   LogOut,
-  Sparkles
+  Sparkles,
+  MoreVertical,
+  Pin,
+  PinOff,
+  Archive,
+  ArchiveRestore,
+  Trash2,
+  ChevronDown,
+  ChevronRight,
+  Pencil,
+  Check,
+  X
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export default function Sidebar({ isCollapsed = false, onToggleCollapse, onCloseMobile }) {
+  const [showArchived, setShowArchived] = useState(false);
+  const [openDropdownId, setOpenDropdownId] = useState(null);
+  const [editingSessionId, setEditingSessionId] = useState(null);
+  const [editingTitle, setEditingTitle] = useState('');
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Menutup dropdown saat pengguna mengklik di luar dropdown
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (openDropdownId && !e.target.closest('[data-dropdown-container]')) {
+        setOpenDropdownId(null);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [openDropdownId]);
   const {
     sessions,
     currentSessionId,
@@ -20,22 +48,40 @@ export default function Sidebar({ isCollapsed = false, onToggleCollapse, onClose
     startNewChat,
     bookmarks,
     user,
-    logout
+    logout,
+    togglePinSession,
+    toggleArchiveSession,
+    renameSession,
+    deleteSession,
+    openLoginModal
   } = useApp();
 
   const handleNewChat = () => {
+    if (!user?.isLoggedIn) {
+      openLoginModal();
+      return;
+    }
     startNewChat();
-    navigate('/');
+    navigate('/chat');
     if (onCloseMobile) onCloseMobile();
   };
 
   const handleSelectSession = (sessionId) => {
     selectSession(sessionId);
-    navigate('/');
+    navigate('/chat');
     if (onCloseMobile) onCloseMobile();
   };
 
   const isRouteActive = (path) => location.pathname === path;
+
+  // Filter & sorting chat sessions
+  const activeSessions = sessions.filter((s) => !s.isArchived);
+  const archivedSessions = sessions.filter((s) => s.isArchived);
+  const sortedActiveSessions = [...activeSessions].sort((a, b) => {
+    if (a.isPinned && !b.isPinned) return -1;
+    if (!a.isPinned && b.isPinned) return 1;
+    return 0;
+  });
 
   // ==========================================
   // 1. COLLAPSED VIEW (Icon-only sidebar / Rail)
@@ -48,7 +94,7 @@ export default function Sidebar({ isCollapsed = false, onToggleCollapse, onClose
           {/* Brand Logo Icon */}
           <div className="tooltip tooltip-right" data-tip="Alistair">
             <Link
-              to="/"
+              to="/explore"
               className="w-10 h-10 rounded-xl bg-primary text-primary-content flex items-center justify-center shadow-sm hover:scale-105 transition-transform"
             >
               <Sparkles className="w-5 h-5" />
@@ -180,7 +226,7 @@ export default function Sidebar({ isCollapsed = false, onToggleCollapse, onClose
       <div className="p-4">
         <div className="flex items-center justify-between mb-4">
           <Link
-            to="/"
+            to="/explore"
             onClick={onCloseMobile}
             className="flex items-center gap-2 font-bold text-lg text-base-content hover:text-primary transition-colors"
           >
@@ -226,41 +272,347 @@ export default function Sidebar({ isCollapsed = false, onToggleCollapse, onClose
 
       {/* Middle Scrollable Section: Chats & Navigation */}
       <div className="flex-1 overflow-y-auto px-3 py-1 space-y-4">
-        {/* Chat History */}
-        <div>
-          <div className="px-3 py-1 text-[11px] font-semibold tracking-wider text-base-content/50 uppercase">
-            Recent Chats
-          </div>
-          <ul className="menu menu-sm p-0 w-full space-y-0.5">
-            {sessions.length === 0 ? (
-              <li className="text-xs text-base-content/40 px-3 py-2 italic">
-                No recent chats
-              </li>
-            ) : (
-              sessions.map((session) => {
-                const isActive = isRouteActive('/') && currentSessionId === session.id;
-                return (
-                  <li key={session.id}>
-                    <button
-                      onClick={() => handleSelectSession(session.id)}
-                      className={`py-2 px-3 text-xs truncate rounded-lg transition-colors ${
-                        isActive
-                          ? 'active font-medium bg-base-300 text-base-content'
-                          : 'text-base-content/70 hover:bg-base-300/50'
-                      }`}
-                      title={session.title}
-                    >
-                      {/* Removed chat icon as requested */}
-                      <span className="truncate">{session.title}</span>
-                    </button>
+        {/* Chat History - Hanya muncul jika user sudah login */}
+        {user?.isLoggedIn && (
+          <>
+            <div>
+              <div className="px-3 py-1 text-[11px] font-semibold tracking-wider text-base-content/50 uppercase flex items-center justify-between">
+                <span>Recent Chats</span>
+                {activeSessions.some((s) => s.isPinned) && (
+                  <span className="text-[10px] text-primary flex items-center gap-1 font-normal lowercase">
+                    <Pin className="w-2.5 h-2.5 fill-current" /> pinned
+                  </span>
+                )}
+              </div>
+              <ul className="menu menu-sm p-0 w-full space-y-0.5">
+                {sortedActiveSessions.length === 0 ? (
+                  <li className="text-xs text-base-content/40 px-3 py-2 italic">
+                    {archivedSessions.length > 0 ? 'Semua chat diarsipkan' : 'No recent chats'}
                   </li>
-                );
-              })
-            )}
-          </ul>
-        </div>
+                ) : (
+                  sortedActiveSessions.map((session) => {
+                    const isActive = isRouteActive('/chat') && currentSessionId === session.id;
+                    const isMenuOpen = openDropdownId === session.id;
+                    const isEditing = editingSessionId === session.id;
+                    return (
+                      <li key={session.id} className="group relative">
+                        {isEditing ? (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (editingTitle.trim()) {
+                                renameSession(session.id, editingTitle.trim());
+                              }
+                              setEditingSessionId(null);
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="flex items-center gap-1 w-full py-1 px-1.5 bg-base-200 rounded-lg"
+                          >
+                            <input
+                              type="text"
+                              value={editingTitle}
+                              onChange={(e) => setEditingTitle(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Escape') {
+                                  setEditingSessionId(null);
+                                }
+                              }}
+                              autoFocus
+                              className="input input-xs input-bordered flex-1 min-w-0 text-xs px-2 py-1 h-7 bg-base-100"
+                              placeholder="Nama sesi chat..."
+                            />
+                            <button
+                              type="submit"
+                              className="btn btn-xs btn-primary btn-square h-7 w-7 shrink-0 cursor-pointer"
+                              title="Simpan nama"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingSessionId(null)}
+                              className="btn btn-xs btn-ghost btn-square h-7 w-7 shrink-0 cursor-pointer"
+                              title="Batal"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </form>
+                        ) : (
+                          <div
+                            onClick={() => {
+                              setOpenDropdownId(null);
+                              handleSelectSession(session.id);
+                            }}
+                            className={`flex items-center justify-between py-1.5 px-2.5 text-xs rounded-lg transition-colors cursor-pointer w-full ${
+                              isActive
+                                ? 'active font-medium bg-base-300 text-base-content'
+                                : 'text-base-content/70 hover:bg-base-300/50'
+                            }`}
+                            title={session.title}
+                          >
+                            <div className="flex items-center gap-1.5 w-0 flex-1 min-w-0 overflow-hidden mr-1">
+                              {session.isPinned && (
+                                <Pin className="w-3 h-3 text-primary shrink-0 rotate-45 fill-current" />
+                              )}
+                              <span className="truncate block">{session.title}</span>
+                            </div>
 
-        <div className="divider my-1 opacity-40"></div>
+                            {/* Dropdown 3 Titik Terkontrol */}
+                            <div
+                              data-dropdown-container
+                              className="relative shrink-0 z-10 w-6"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenDropdownId(isMenuOpen ? null : session.id);
+                                }}
+                                className={`btn btn-ghost btn-xs btn-circle p-0 h-6 w-6 min-h-0 flex items-center justify-center cursor-pointer text-base-content opacity-100 transition-all hover:bg-base-200 ${
+                                  isMenuOpen || isActive ? 'bg-base-200' : ''
+                                }`}
+                                title="Opsi chat"
+                                aria-label="Opsi chat"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+
+                              {isMenuOpen && (
+                                <ul className="absolute right-0 top-full z-50 menu p-1 shadow-xl bg-base-100 rounded-box border border-base-300 w-36 text-xs mt-1">
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenDropdownId(null);
+                                        setEditingSessionId(session.id);
+                                        setEditingTitle(session.title);
+                                      }}
+                                      className="gap-2 py-1.5"
+                                    >
+                                      <Pencil className="w-3.5 h-3.5" />
+                                      <span>Edit Nama</span>
+                                    </button>
+                                  </li>
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenDropdownId(null);
+                                        togglePinSession(session.id);
+                                      }}
+                                      className="gap-2 py-1.5"
+                                    >
+                                      {session.isPinned ? (
+                                        <>
+                                          <PinOff className="w-3.5 h-3.5" />
+                                          <span>Lepas Pin</span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Pin className="w-3.5 h-3.5" />
+                                          <span>Pin chat</span>
+                                        </>
+                                      )}
+                                    </button>
+                                  </li>
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenDropdownId(null);
+                                        toggleArchiveSession(session.id);
+                                      }}
+                                      className="gap-2 py-1.5"
+                                    >
+                                      <Archive className="w-3.5 h-3.5" />
+                                      <span>Arsipkan</span>
+                                    </button>
+                                  </li>
+                                  <li className="border-t border-base-300 my-1"></li>
+                                  <li>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setOpenDropdownId(null);
+                                        deleteSession(session.id);
+                                      }}
+                                      className="gap-2 py-1.5 text-error hover:bg-error/10"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      <span>Hapus</span>
+                                    </button>
+                                  </li>
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+
+              {/* Bagian Chat yang Diarsipkan */}
+              {archivedSessions.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-base-300/50">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived((prev) => !prev)}
+                    className="flex items-center justify-between w-full px-2.5 py-1.5 text-[11px] font-medium text-base-content/60 hover:text-base-content hover:bg-base-200/60 rounded-lg transition-colors"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Archive className="w-3.5 h-3.5 text-base-content/60" />
+                      <span>Archived ({archivedSessions.length})</span>
+                    </div>
+                    {showArchived ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                  </button>
+
+                  {showArchived && (
+                    <ul className="menu menu-sm p-0 w-full space-y-0.5 mt-1 pl-1 border-l-2 border-base-300">
+                      {archivedSessions.map((session) => {
+                        const isActive = isRouteActive('/chat') && currentSessionId === session.id;
+                        const isMenuOpen = openDropdownId === session.id;
+                        const isEditing = editingSessionId === session.id;
+                        return (
+                          <li key={session.id} className="group relative">
+                            {isEditing ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  if (editingTitle.trim()) {
+                                    renameSession(session.id, editingTitle.trim());
+                                  }
+                                  setEditingSessionId(null);
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 w-full py-1 px-1.5 bg-base-200 rounded-lg"
+                              >
+                                <input
+                                  type="text"
+                                  value={editingTitle}
+                                  onChange={(e) => setEditingTitle(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Escape') {
+                                      setEditingSessionId(null);
+                                    }
+                                  }}
+                                  autoFocus
+                                  className="input input-xs input-bordered flex-1 min-w-0 text-xs px-2 py-1 h-7 bg-base-100"
+                                  placeholder="Nama sesi chat..."
+                                />
+                                <button
+                                  type="submit"
+                                  className="btn btn-xs btn-primary btn-square h-7 w-7 shrink-0 cursor-pointer"
+                                  title="Simpan nama"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingSessionId(null)}
+                                  className="btn btn-xs btn-ghost btn-square h-7 w-7 shrink-0 cursor-pointer"
+                                  title="Batal"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </form>
+                            ) : (
+                              <div
+                                onClick={() => {
+                                  setOpenDropdownId(null);
+                                  handleSelectSession(session.id);
+                                }}
+                                className={`flex items-center justify-between py-1.5 px-2 text-xs rounded-lg transition-colors cursor-pointer w-full ${
+                                  isActive
+                                    ? 'active font-medium bg-base-300 text-base-content'
+                                    : 'text-base-content/60 hover:bg-base-300/50'
+                                }`}
+                                title={session.title}
+                              >
+                                <span className="truncate block w-0 flex-1 min-w-0">{session.title}</span>
+
+                                <div
+                                  data-dropdown-container
+                                  className="relative shrink-0 z-10 w-6"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenDropdownId(isMenuOpen ? null : session.id);
+                                    }}
+                                    className={`btn btn-ghost btn-xs btn-circle p-0 h-6 w-6 min-h-0 flex items-center justify-center cursor-pointer text-base-content opacity-100 transition-all hover:bg-base-200 ${
+                                      isMenuOpen || isActive ? 'bg-base-200' : ''
+                                    }`}
+                                    title="Opsi arsip"
+                                    aria-label="Opsi arsip"
+                                  >
+                                    <MoreVertical className="w-3.5 h-3.5" />
+                                  </button>
+
+                                  {isMenuOpen && (
+                                    <ul className="absolute right-0 top-full z-50 menu p-1 shadow-lg bg-base-100 rounded-box border border-base-300 w-36 text-xs mt-1">
+                                      <li>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenDropdownId(null);
+                                            setEditingSessionId(session.id);
+                                            setEditingTitle(session.title);
+                                          }}
+                                          className="gap-2 py-1.5"
+                                        >
+                                          <Pencil className="w-3.5 h-3.5" />
+                                          <span>Edit Nama</span>
+                                        </button>
+                                      </li>
+                                      <li>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenDropdownId(null);
+                                            toggleArchiveSession(session.id);
+                                          }}
+                                          className="gap-2 py-1.5"
+                                        >
+                                          <ArchiveRestore className="w-3.5 h-3.5" />
+                                          <span>Batal Arsip</span>
+                                        </button>
+                                      </li>
+                                      <li className="border-t border-base-300 my-1"></li>
+                                      <li>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setOpenDropdownId(null);
+                                            deleteSession(session.id);
+                                          }}
+                                          className="gap-2 py-1.5 text-error hover:bg-error/10"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          <span>Hapus</span>
+                                        </button>
+                                      </li>
+                                    </ul>
+                                  )}
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="divider my-1 opacity-40"></div>
+          </>
+        )}
 
         {/* Core Navigation */}
         <div>

@@ -9,7 +9,7 @@ const DEFAULT_COVER = 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c
 export default function BookDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { isBookmarked, toggleBookmark, sendMessage, user } = useApp();
+  const { isBookmarked, toggleBookmark, sendMessage, user, openLoginModal } = useApp();
 
   const [book, setBook] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -84,8 +84,12 @@ export default function BookDetail() {
   const coverSrc = book.cover_url || book.cover || DEFAULT_COVER;
 
   const handleAskAlistair = () => {
+    if (!user?.isLoggedIn) {
+      openLoginModal();
+      return;
+    }
     sendMessage(`Bisa berikan analisis dan review mendalam mengenai ${book.title} karya ${book.author}?`, book);
-    navigate('/');
+    navigate('/chat');
   };
 
   const handleImageError = (e) => {

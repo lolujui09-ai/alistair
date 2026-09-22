@@ -8,6 +8,3 @@ coverage/
 .DS_Store
 .env.*
 !.env.example
-venv/
-.venv/
-__pycache__/

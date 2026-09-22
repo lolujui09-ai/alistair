@@ -3,6 +3,7 @@ import { Outlet, Link } from 'react-router-dom';
 import { Menu, Sparkles, User as UserIcon } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import ThemeToggle from '../components/ThemeToggle';
+import LoginPromptModal from '../components/LoginPromptModal';
 import { useApp } from '../context/AppContext';
 
 export default function AppLayout() {
@@ -47,7 +48,7 @@ export default function AppLayout() {
 
               {/* Mobile brand title */}
               <div className="lg:hidden ml-1">
-                <Link to="/" className="flex items-center gap-2 font-bold text-base hover:text-primary transition-colors">
+                <Link to="/explore" className="flex items-center gap-2 font-bold text-base hover:text-primary transition-colors">
                   <Sparkles className="w-4 h-4 text-primary" />
                   <span>Alistair</span>
                 </Link>
@@ -98,6 +99,9 @@ export default function AppLayout() {
           onToggleCollapse={() => setDrawerOpen(false)}
         />
       </div>
+
+      {/* Global Login Prompt Dialog */}
+      <LoginPromptModal />
     </div>
   );
 }
