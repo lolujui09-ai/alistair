@@ -6,7 +6,8 @@
     "start": "node src/server.mjs",
     "dev": "nodemon src/server.mjs",
     "ingest": "node src/scripts/ingest_books.mjs",
-    "ingest:reset": "node src/scripts/ingest_books.mjs --reset"
+    "ingest:reset": "node src/scripts/ingest_books.mjs --reset",
+    "migrate:tidb": "node src/scripts/migrate_local_to_tidb.mjs"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.19.0",
